@@ -184,21 +184,20 @@ export function initSandboxRuntimeModular(): void {
   };
 
   const resolveRootCompositionElement = (): HTMLElement | null => {
-    const mainComp = document.getElementById("main-comp");
-    if (mainComp instanceof HTMLElement && mainComp.hasAttribute("data-composition-id")) {
-      return mainComp;
-    }
+    // 1. Explicit root marker takes priority
     const explicitRoot = document.querySelector('[data-composition-id][data-root="true"]');
     if (explicitRoot instanceof HTMLElement) {
       return explicitRoot;
     }
+    // 3. Topmost composition element (not nested inside another)
     const compositionNodes = Array.from(
       document.querySelectorAll("[data-composition-id]"),
     ) as HTMLElement[];
     if (compositionNodes.length === 0) return null;
     return (
       compositionNodes.find((node) => !node.parentElement?.closest("[data-composition-id]")) ??
-      compositionNodes[0]
+      compositionNodes[0] ??
+      null
     );
   };
 
@@ -215,15 +214,18 @@ export function initSandboxRuntimeModular(): void {
 
   const sanitizeCompositionDurationAttributes = () => {
     const rootEl = resolveRootCompositionElement();
-    const compositionNodes = Array.from(
-      document.querySelectorAll("[data-composition-id][data-duration]"),
+    const compositionNodes = Array.from(document.querySelectorAll("[data-composition-id]")).filter(
+      (n) => n.hasAttribute("data-duration") || n.hasAttribute("data-end"),
     ) as HTMLElement[];
     for (const node of compositionNodes) {
       // Preserve explicit root duration so timeline payload can distinguish
       // authored finite duration from loop-inflated timeline duration.
       if (rootEl && node === rootEl) continue;
       // Non-root compositions derive duration from timeline.
+      // Strip both data-duration AND data-end so the visibility system
+      // falls back to the GSAP timeline duration (parity with preview).
       node.removeAttribute("data-duration");
+      node.removeAttribute("data-end");
     }
   };
 

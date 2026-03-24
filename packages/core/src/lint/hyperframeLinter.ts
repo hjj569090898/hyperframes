@@ -276,11 +276,11 @@ export function lintHyperframeHtml(
         continue;
       }
       pushFinding({
-        code: "suspicious_global_gsap_selector",
+        code: "unscoped_gsap_selector",
         severity: "warning",
-        message: `Timeline "${localTimelineCompId}" uses a global selector "${window.targetSelector}" that may escape composition scope.`,
+        message: `Timeline "${localTimelineCompId}" uses unscoped selector "${window.targetSelector}" that will target elements in ALL compositions when bundled, causing data loss (opacity, transforms, etc.).`,
         selector: window.targetSelector,
-        fixHint: `Scope the selector like \`[data-composition-id="${localTimelineCompId}"] ${window.targetSelector}\` or use a unique id.`,
+        fixHint: `Scope the selector: \`[data-composition-id="${localTimelineCompId}"] ${window.targetSelector}\` or use a unique id.`,
         snippet: truncateSnippet(window.raw),
       });
     }
@@ -343,6 +343,77 @@ export function lintHyperframeHtml(
           break; // Only report once per video
         }
       }
+    }
+  }
+
+  // #3.5: Self-closing <audio .../> or <video .../> — CRITICAL
+  // In HTML5, <audio> and <video> are NOT void elements. The browser silently
+  // ignores the "/>", leaving the tag open. All subsequent sibling elements
+  // become invisible fallback content inside the media tag, making entire
+  // compositions disappear. This is the #1 cause of "black preview" bugs.
+  {
+    const selfClosingMediaRe = /<(audio|video)\b[^>]*\/>/gi;
+    let scMatch: RegExpExecArray | null;
+    while ((scMatch = selfClosingMediaRe.exec(source)) !== null) {
+      const tagName = scMatch[1] || "audio";
+      const elementId = readAttr(scMatch[0], "id") || undefined;
+      pushFinding({
+        code: "self_closing_media_tag",
+        severity: "error",
+        message: `Self-closing <${tagName}/> is invalid HTML. The browser will leave the tag open, swallowing all subsequent elements as invisible fallback content. This makes compositions INVISIBLE.`,
+        elementId,
+        fixHint: `Change <${tagName} .../> to <${tagName} ...></${tagName}> — media elements MUST have explicit closing tags.`,
+        snippet: truncateSnippet(scMatch[0]),
+      });
+    }
+  }
+
+  // #3.6: Placeholder/fake media URLs — CRITICAL
+  // Placeholder URLs (placehold.co, placeholder.com, example.com) will 404 at render time.
+  {
+    const PLACEHOLDER_DOMAINS =
+      /\b(placehold\.co|placeholder\.com|placekitten\.com|picsum\.photos|example\.com|via\.placeholder\.com|dummyimage\.com)\b/i;
+    for (const tag of tags) {
+      if (!isMediaTag(tag.name)) continue;
+      const src = readAttr(tag.raw, "src");
+      if (!src) continue;
+      if (PLACEHOLDER_DOMAINS.test(src)) {
+        const elementId = readAttr(tag.raw, "id") || undefined;
+        pushFinding({
+          code: "placeholder_media_url",
+          severity: "error",
+          message: `<${tag.name}${elementId ? ` id="${elementId}"` : ""}> uses a placeholder URL that will 404 at render time: ${src.slice(0, 80)}`,
+          elementId,
+          fixHint: "Replace with a real media URL. Placeholder domains will 404 at render time.",
+          snippet: truncateSnippet(tag.raw),
+        });
+      }
+    }
+  }
+
+  // #3.7: Fabricated inline base64 media — CRITICAL
+  // Inline base64 audio/video data is almost always fabricated garbage that
+  // won't play. Real audio files are 100KB+ when base64-encoded.
+  {
+    const base64MediaRe =
+      /src\s*=\s*["'](data:(?:audio|video)\/[^;]+;base64,([A-Za-z0-9+/=]{100,}))["']/gi;
+    let b64Match: RegExpExecArray | null;
+    while ((b64Match = base64MediaRe.exec(source)) !== null) {
+      // Check if it's suspiciously repetitive (fake data has long runs of repeated chars)
+      const sample = (b64Match[2] || "").slice(0, 200);
+      const uniqueChars = new Set(sample.replace(/[A-Za-z0-9+/=]/g, (c) => c)).size;
+      const dataSize = Math.round(((b64Match[2] || "").length * 3) / 4);
+      const isSuspicious = uniqueChars < 15 || (dataSize > 1000 && dataSize < 50000);
+      // Any embedded base64 audio is suspicious — real audio should be a file
+      pushFinding({
+        code: "fabricated_inline_media",
+        severity: isSuspicious ? "error" : "warning",
+        message: isSuspicious
+          ? `Fabricated base64 media detected (${(dataSize / 1024).toFixed(0)} KB). This is almost certainly fake data that won't play.`
+          : `Embedded base64 audio/video detected (${(dataSize / 1024).toFixed(0)} KB). Consider using a file URL instead.`,
+        fixHint: "Remove the data: URI and use a real media file URL instead.",
+        snippet: truncateSnippet((b64Match[1] ?? "").slice(0, 80) + "..."),
+      });
     }
   }
 
@@ -717,4 +788,97 @@ function truncateSnippet(value: string, maxLength = 220): string | undefined {
     return normalized;
   }
   return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+// ── Async media URL accessibility checker ─────────────────────────────────
+
+/**
+ * Extract all remote media URLs from HTML source.
+ */
+function extractMediaUrls(
+  html: string,
+): Array<{ url: string; tagName: string; elementId?: string; snippet: string }> {
+  const results: Array<{ url: string; tagName: string; elementId?: string; snippet: string }> = [];
+  const tagRe = /<(video|audio|img|source)\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html)) !== null) {
+    const tagName = (match[1] ?? "").toLowerCase();
+    const raw = match[0];
+    const src = readAttr(raw, "src");
+    if (!src) continue;
+    if (/^https?:\/\//i.test(src)) {
+      results.push({
+        url: src,
+        tagName,
+        elementId: readAttr(raw, "id") || undefined,
+        snippet: raw.length > 120 ? raw.slice(0, 117) + "..." : raw,
+      });
+    }
+  }
+  return results;
+}
+
+/**
+ * Async lint pass: HEAD-checks every remote media URL in the HTML.
+ * Returns findings for URLs that are unreachable (non-2xx status or network error).
+ *
+ * Call this after `lintHyperframeHtml()` and merge the findings.
+ *
+ * @param timeoutMs - per-request timeout (default 8000ms)
+ */
+export async function lintMediaUrls(
+  html: string,
+  options: { timeoutMs?: number } = {},
+): Promise<HyperframeLintFinding[]> {
+  const urls = extractMediaUrls(html);
+  if (urls.length === 0) return [];
+
+  const timeout = options.timeoutMs ?? 8000;
+  const findings: HyperframeLintFinding[] = [];
+
+  // Dedupe by URL
+  const seen = new Set<string>();
+  const unique = urls.filter((u) => {
+    if (seen.has(u.url)) return false;
+    seen.add(u.url);
+    return true;
+  });
+
+  // Check all URLs in parallel
+  const checks = unique.map(async ({ url, tagName, elementId, snippet }) => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      const resp = await fetch(url, {
+        method: "HEAD",
+        signal: controller.signal,
+        redirect: "follow",
+      });
+      clearTimeout(timer);
+
+      if (!resp.ok) {
+        findings.push({
+          code: "inaccessible_media_url",
+          severity: "error",
+          message: `<${tagName}${elementId ? ` id="${elementId}"` : ""}> references a URL that returned HTTP ${resp.status}: ${url.slice(0, 100)}`,
+          elementId,
+          fixHint: "This URL is not accessible. Replace with a valid, reachable media URL.",
+          snippet,
+        });
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.name : "unknown";
+      findings.push({
+        code: "inaccessible_media_url",
+        severity: "error",
+        message: `<${tagName}${elementId ? ` id="${elementId}"` : ""}> references an unreachable URL (${reason}): ${url.slice(0, 100)}`,
+        elementId,
+        fixHint: "This URL is not accessible. Replace with a valid, reachable media URL.",
+        snippet,
+      });
+    }
+  });
+
+  await Promise.all(checks);
+  return findings;
 }

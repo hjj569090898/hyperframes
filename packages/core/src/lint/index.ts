@@ -4,4 +4,4 @@ export type {
   HyperframeLintResult,
   HyperframeLinterOptions,
 } from "./types";
-export { lintHyperframeHtml } from "./hyperframeLinter";
+export { lintHyperframeHtml, lintMediaUrls } from "./hyperframeLinter";

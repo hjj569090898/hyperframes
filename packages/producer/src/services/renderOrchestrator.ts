@@ -15,7 +15,7 @@
 
 import { existsSync, mkdirSync, rmSync, writeFileSync, copyFileSync, appendFileSync } from "fs";
 import {
-  type EngineConfig as ProducerConfig,
+  type EngineConfig,
   resolveConfig,
   extractAllVideoFrames,
   createFrameLookupTable,
@@ -94,7 +94,7 @@ export interface RenderConfig {
   useGpu?: boolean;
   debug?: boolean;
   /** Full producer config. When provided, env vars are not read. */
-  producerConfig?: ProducerConfig;
+  producerConfig?: EngineConfig;
   /** Custom logger. Defaults to console-based defaultLogger. */
   logger?: ProducerLogger;
 }
