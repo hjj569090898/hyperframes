@@ -321,9 +321,101 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
 
   // ── API: stub endpoints ───────────────────────────────────────────────
   app.get("/api/resolve-session/:id", (c) => c.json({ error: "not available" }, 404));
-  app.post("/api/projects/:id/render", (c) =>
-    c.json({ error: "Use 'hyperframes render' CLI command instead" }, 501),
-  );
+
+  // ── API: render ─────────────────────────────────────────────────────
+  // In-memory job store for active renders
+  const renderJobs = new Map<
+    string,
+    { status: string; progress: number; error?: string; outputPath?: string }
+  >();
+
+  app.post("/api/projects/:id/render", async (c) => {
+    const id = c.req.param("id");
+    if (id !== projectId) return c.json({ error: "not found" }, 404);
+
+    const jobId = Math.random().toString(36).slice(2, 10);
+    const outputDir = join(projectDir, "renders");
+    if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
+    const outputPath = join(outputDir, `${projectId}.mp4`);
+
+    renderJobs.set(jobId, { status: "rendering", progress: 0, outputPath });
+
+    // Run render asynchronously
+    (async () => {
+      try {
+        const { createRenderJob, executeRenderJob } = await import("@hyperframes/producer");
+        const { ensureBrowser } = await import("../browser/manager.js");
+
+        // Ensure browser is available and pass path to producer
+        try {
+          const browser = await ensureBrowser();
+          if (browser.executablePath && !process.env.PRODUCER_HEADLESS_SHELL_PATH) {
+            process.env.PRODUCER_HEADLESS_SHELL_PATH = browser.executablePath;
+          }
+        } catch {
+          // Continue without — acquireBrowser will try its own resolution
+        }
+
+        const job = createRenderJob({ fps: 30, quality: "standard" });
+        const onProgress = (j: { progress: number }) => {
+          const entry = renderJobs.get(jobId);
+          if (entry) entry.progress = j.progress;
+        };
+        await executeRenderJob(job, projectDir, outputPath, onProgress);
+        const entry = renderJobs.get(jobId);
+        if (entry) {
+          entry.status = "complete";
+          entry.progress = 100;
+        }
+      } catch (err) {
+        const entry = renderJobs.get(jobId);
+        if (entry) {
+          entry.status = "failed";
+          entry.error = err instanceof Error ? err.message : String(err);
+        }
+      }
+    })();
+
+    return c.json({ jobId });
+  });
+
+  app.get("/api/render/:jobId/progress", (c) => {
+    const { jobId } = c.req.param();
+    const job = renderJobs.get(jobId);
+    if (!job) return c.json({ error: "not found" }, 404);
+
+    return streamSSE(c, async (stream) => {
+      while (true) {
+        const current = renderJobs.get(jobId);
+        if (!current) break;
+        await stream.writeSSE({
+          event: "progress",
+          data: JSON.stringify({
+            progress: current.progress,
+            status: current.status,
+            error: current.error,
+          }),
+        });
+        if (current.status === "complete" || current.status === "failed") break;
+        await stream.sleep(500);
+      }
+    });
+  });
+
+  app.get("/api/render/:jobId/download", (c) => {
+    const { jobId } = c.req.param();
+    const job = renderJobs.get(jobId);
+    if (!job?.outputPath || !existsSync(job.outputPath)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const content = readFileSync(job.outputPath);
+    return new Response(content, {
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Disposition": `attachment; filename="${projectId}.mp4"`,
+      },
+    });
+  });
 
   // ── Studio SPA static files ───────────────────────────────────────────
   app.get("/assets/*", (c) => {
