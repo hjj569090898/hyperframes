@@ -2,52 +2,49 @@ import { defineCommand } from "citty";
 import * as clack from "@clack/prompts";
 import { c } from "../ui/colors.js";
 import { VERSION } from "../version.js";
+import { checkForUpdate, withMeta } from "../utils/updateCheck.js";
 
 export default defineCommand({
   meta: { name: "upgrade", description: "Check for updates and show upgrade instructions" },
   args: {
     yes: { type: "boolean", alias: "y", description: "Show upgrade commands without prompting" },
     check: { type: "boolean", description: "Check for updates and exit (no prompt)" },
+    json: { type: "boolean", description: "Output as JSON", default: false },
   },
   async run({ args }) {
-    const autoYes = args.yes === true;
+    const useJson = args.json === true;
     const checkOnly = args.check === true;
+
+    // JSON mode: always force-check and output structured data
+    if (useJson) {
+      const result = await checkForUpdate(true);
+      console.log(JSON.stringify(withMeta(result), null, 2));
+      return;
+    }
+
+    const autoYes = args.yes === true;
     clack.intro(c.bold("hyperframes upgrade"));
 
     const s = clack.spinner();
     s.start("Checking for updates...");
 
-    let latest: string;
-    try {
-      const res = await fetch("https://registry.npmjs.org/hyperframes/latest");
-      if (!res.ok) {
-        s.stop("Could not check for updates");
-        clack.outro(c.dim("Package not yet published to npm."));
-        return;
-      }
-      const data = (await res.json()) as { version?: string };
-      latest = data.version ?? VERSION;
-    } catch {
-      s.stop("Could not check for updates");
-      clack.outro(c.dim("Network error. Check your connection."));
-      return;
-    }
+    const result = await checkForUpdate(true);
 
-    if (latest === VERSION) {
+    if (result.latest === result.current) {
       s.stop(c.success("Already up to date"));
-      clack.outro(`${c.success("◇")}  ${c.bold("v" + VERSION)}`);
+      clack.outro(`${c.success("\u25C7")}  ${c.bold("v" + VERSION)}`);
       return;
     }
 
     s.stop("Update available");
 
     console.log();
-    console.log(`   ${c.dim("Current:")}  ${c.bold("v" + VERSION)}`);
-    console.log(`   ${c.dim("Latest:")}   ${c.bold(c.accent("v" + latest))}`);
+    console.log(`   ${c.dim("Current:")}  ${c.bold("v" + result.current)}`);
+    console.log(`   ${c.dim("Latest:")}   ${c.bold(c.accent("v" + result.latest))}`);
     console.log();
 
     if (checkOnly) {
-      clack.outro(c.accent("Update available: v" + latest));
+      clack.outro(c.accent("Update available: v" + result.latest));
       return;
     }
 
@@ -63,9 +60,9 @@ export default defineCommand({
     }
 
     console.log();
-    console.log(`   ${c.accent("npm install -g hyperframes@" + latest)}`);
+    console.log(`   ${c.accent("npm install -g hyperframes@" + result.latest)}`);
     console.log(`   ${c.dim("or")}`);
-    console.log(`   ${c.accent("npx hyperframes@" + latest + " --version")}`);
+    console.log(`   ${c.accent("npx hyperframes@" + result.latest + " --version")}`);
     console.log();
 
     clack.outro(c.success("Run one of the commands above to upgrade."));

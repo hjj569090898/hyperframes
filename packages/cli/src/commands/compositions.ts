@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { c } from "../ui/colors.js";
 import { ensureDOMParser } from "../utils/dom.js";
 import { resolveProject } from "../utils/project.js";
+import { withMeta } from "../utils/updateCheck.js";
 
 interface CompositionInfo {
   id: string;
@@ -79,7 +80,7 @@ export default defineCommand({
     }
 
     if (args.json) {
-      console.log(JSON.stringify(compositions, null, 2));
+      console.log(JSON.stringify(withMeta({ compositions }), null, 2));
       return;
     }
 

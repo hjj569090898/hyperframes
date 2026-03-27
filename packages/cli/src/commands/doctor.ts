@@ -3,6 +3,8 @@ import { execSync } from "node:child_process";
 import { c } from "../ui/colors.js";
 import { findBrowser } from "../browser/manager.js";
 import { findFFmpeg } from "../browser/ffmpeg.js";
+import { VERSION } from "../version.js";
+import { getUpdateMeta } from "../utils/updateCheck.js";
 
 interface Check {
   name: string;
@@ -84,6 +86,18 @@ function checkDockerRunning(): CheckResult {
   }
 }
 
+function checkVersion(): CheckResult {
+  const meta = getUpdateMeta();
+  if (meta.updateAvailable && meta.latestVersion) {
+    return {
+      ok: false,
+      detail: `${VERSION} \u2192 ${meta.latestVersion} available`,
+      hint: "Run: hyperframes upgrade",
+    };
+  }
+  return { ok: true, detail: `${VERSION} (latest)` };
+}
+
 function checkNode(): CheckResult {
   return { ok: true, detail: `${process.version} (${process.platform} ${process.arch})` };
 }
@@ -97,6 +111,7 @@ export default defineCommand({
     console.log();
 
     const checks: Check[] = [
+      { name: "Version", run: checkVersion },
       { name: "Node.js", run: checkNode },
       { name: "FFmpeg", run: checkFFmpeg },
       { name: "FFprobe", run: checkFFprobe },

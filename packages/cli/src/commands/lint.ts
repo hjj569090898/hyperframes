@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { lintHyperframeHtml } from "@hyperframes/core/lint";
 import { c } from "../ui/colors.js";
 import { resolveProject } from "../utils/project.js";
+import { withMeta } from "../utils/updateCheck.js";
 
 export default defineCommand({
   meta: { name: "lint", description: "Validate a composition for common mistakes" },
@@ -16,7 +17,7 @@ export default defineCommand({
     const result = lintHyperframeHtml(html, { filePath: project.indexPath });
 
     if (args.json) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(withMeta(result), null, 2));
       process.exit(result.ok ? 0 : 1);
     }
 

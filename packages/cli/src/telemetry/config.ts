@@ -19,6 +19,10 @@ export interface HyperframesConfig {
   telemetryNoticeShown: boolean;
   /** Total CLI command invocations (for engagement prompts) */
   commandCount: number;
+  /** ISO timestamp of the last npm registry version check */
+  lastUpdateCheck?: string;
+  /** Latest version found on npm */
+  latestVersion?: string;
 }
 
 const DEFAULT_CONFIG: HyperframesConfig = {
@@ -52,6 +56,8 @@ export function readConfig(): HyperframesConfig {
       anonymousId: parsed.anonymousId || randomUUID(),
       telemetryNoticeShown: parsed.telemetryNoticeShown ?? DEFAULT_CONFIG.telemetryNoticeShown,
       commandCount: parsed.commandCount ?? DEFAULT_CONFIG.commandCount,
+      lastUpdateCheck: parsed.lastUpdateCheck,
+      latestVersion: parsed.latestVersion,
     };
 
     cachedConfig = config;

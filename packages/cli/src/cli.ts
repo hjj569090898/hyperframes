@@ -10,6 +10,7 @@ import {
   trackCommand,
   incrementCommandCount,
 } from "./telemetry/index.js";
+import { checkForUpdate, printUpdateNotice } from "./utils/updateCheck.js";
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -59,9 +60,19 @@ if (command !== "telemetry" && command !== "unknown" && !isHelpOrVersion) {
   }
 }
 
+// Fire background update check (non-blocking, populates cache for printUpdateNotice)
+const hasJsonFlag = process.argv.includes("--json");
+if (!isHelpOrVersion && !hasJsonFlag && command !== "upgrade") {
+  checkForUpdate().catch(() => {});
+}
+
 // Async flush for normal exit (beforeExit fires when the event loop drains)
 process.on("beforeExit", () => {
   flush().catch(() => {});
+  // Print update notice after command output (stderr, skipped in CI/non-TTY)
+  if (!hasJsonFlag) {
+    printUpdateNotice();
+  }
 });
 
 // Sync flush for process.exit() calls (exit event only allows synchronous code)

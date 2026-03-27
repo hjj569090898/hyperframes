@@ -6,6 +6,7 @@ import { c } from "../ui/colors.js";
 import { formatBytes, label } from "../ui/format.js";
 import { ensureDOMParser } from "../utils/dom.js";
 import { resolveProject } from "../utils/project.js";
+import { withMeta } from "../utils/updateCheck.js";
 
 function totalSize(dir: string): number {
   let total = 0;
@@ -52,7 +53,7 @@ export default defineCommand({
     if (args.json) {
       console.log(
         JSON.stringify(
-          {
+          withMeta({
             name: project.name,
             resolution: parsed.resolution,
             width: parsed.resolution === "portrait" ? 1080 : 1920,
@@ -62,7 +63,7 @@ export default defineCommand({
             tracks: tracks.size,
             types: typeCounts,
             size,
-          },
+          }),
           null,
           2,
         ),

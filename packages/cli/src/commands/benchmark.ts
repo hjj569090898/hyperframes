@@ -6,6 +6,7 @@ import { loadProducer } from "../utils/producer.js";
 import { c } from "../ui/colors.js";
 import { formatBytes, formatDuration, errorBox } from "../ui/format.js";
 import * as clack from "@clack/prompts";
+import { withMeta } from "../utils/updateCheck.js";
 
 interface BenchmarkConfig {
   label: string;
@@ -151,16 +152,18 @@ export default defineCommand({
     if (jsonOutput) {
       console.log(
         JSON.stringify(
-          results.map((r) => ({
-            config: r.config.label,
-            fps: r.config.fps,
-            quality: r.config.quality,
-            workers: r.config.workers,
-            avgTimeMs: r.avgTime,
-            avgSizeBytes: r.avgSize,
-            failures: r.failures,
-            runs: r.runs,
-          })),
+          withMeta({
+            results: results.map((r) => ({
+              config: r.config.label,
+              fps: r.config.fps,
+              quality: r.config.quality,
+              workers: r.config.workers,
+              avgTimeMs: r.avgTime,
+              avgSizeBytes: r.avgSize,
+              failures: r.failures,
+              runs: r.runs,
+            })),
+          }),
           null,
           2,
         ),
