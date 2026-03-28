@@ -1,5 +1,5 @@
 ---
-name: compose-video
+name: hyperframes-compose
 description: Create HyperFrames HTML video compositions. Use when asked to create a video, build an animation, make a composition, add a title card, or generate any HTML-based video content for HyperFrames.
 ---
 

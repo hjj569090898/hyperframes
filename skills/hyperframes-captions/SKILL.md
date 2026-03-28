@@ -1,5 +1,5 @@
 ---
-name: captions
+name: hyperframes-captions
 description: Build tone-adaptive captions from whisper transcripts. Detects script energy (hype, corporate, tutorial, storytelling, social) and applies matching typography, color, and animation. Supports per-word styling for brand names, ALL CAPS, numbers, and CTAs. Use when adding captions or subtitles to a HyperFrames composition.
 ---
 

@@ -86,7 +86,7 @@ npx hyperframes skills --cursor
 ### Or via `npx skills add`
 
 ```bash
-# HyperFrames skills (compose-video, captions)
+# HyperFrames skills (hyperframes-compose, hyperframes-captions)
 npx skills add heygen-com/hyperframes
 
 # GSAP skills (gsap-core, gsap-timeline, gsap-scrolltrigger, gsap-plugins, gsap-performance, gsap-utils, gsap-react, gsap-frameworks)
@@ -97,10 +97,10 @@ npx skills add greensock/gsap-skills
 
 | Source                                               | Skills                                                                                                                                | What they teach                                                                                                     |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **HyperFrames**                                      | `compose-video`, `captions`                                                                                                           | HTML composition structure, `class="clip"` rules, `data-*` attributes, timeline registration, rendering constraints |
+| **HyperFrames**                                      | `hyperframes-compose`, `hyperframes-captions`                                                                                         | HTML composition structure, `class="clip"` rules, `data-*` attributes, timeline registration, rendering constraints |
 | **[GSAP](https://github.com/greensock/gsap-skills)** | `gsap-core`, `gsap-timeline`, `gsap-performance`, `gsap-plugins`, `gsap-scrolltrigger`, `gsap-utils`, `gsap-react`, `gsap-frameworks` | Core API, timeline sequencing, ScrollTrigger, plugin usage, performance best practices                              |
 
-In Claude Code, invoke with `/compose-video`, `/captions`, `/gsap-core`, etc.
+In Claude Code, invoke with `/hyperframes-compose`, `/hyperframes-captions`, `/gsap-core`, etc.
 
 ## Documentation
 

@@ -6,10 +6,10 @@ This repo ships skills that are installed globally via `npx hyperframes skills` 
 
 ### HyperFrames Skills (from this repo)
 
-| Skill             | Invoke with      | When to use                                                                                                                                                                           |
-| ----------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **compose-video** | `/compose-video` | Creating ANY HTML composition — videos, animations, title cards, overlays. Contains required HTML structure, `class="clip"` rules, GSAP timeline patterns, and rendering constraints. |
-| **captions**      | `/captions`      | Building tone-adaptive captions from whisper transcripts — style detection, per-word styling, positioning.                                                                            |
+| Skill                    | Invoke with             | When to use                                                                                                                                                                           |
+| ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **hyperframes-compose**  | `/hyperframes-compose`  | Creating ANY HTML composition — videos, animations, title cards, overlays. Contains required HTML structure, `class="clip"` rules, GSAP timeline patterns, and rendering constraints. |
+| **hyperframes-captions** | `/hyperframes-captions` | Building tone-adaptive captions from whisper transcripts — style detection, per-word styling, positioning.                                                                            |
 
 ### GSAP Skills (from [greensock/gsap-skills](https://github.com/greensock/gsap-skills))
 
@@ -28,8 +28,8 @@ The skills encode HyperFrames-specific patterns (e.g., required `class="clip"` o
 
 ### Rules
 
-- When creating or modifying HTML compositions → invoke `/compose-video` BEFORE writing any code
-- When adding captions → invoke `/captions` BEFORE writing any code
+- When creating or modifying HTML compositions → invoke `/hyperframes-compose` BEFORE writing any code
+- When adding captions → invoke `/hyperframes-captions` BEFORE writing any code
 - When writing GSAP animations → invoke `/gsap-core` and `/gsap-timeline` BEFORE writing any code
 - When optimizing animation performance → invoke `/gsap-performance` BEFORE making changes
 

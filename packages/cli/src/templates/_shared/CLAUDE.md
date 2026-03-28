@@ -4,13 +4,13 @@
 
 **Always invoke the relevant skill before writing or modifying compositions.** Skills encode framework-specific patterns (e.g., `class="clip"`, `window.__timelines`, `data-*` attributes) that are NOT in generic web docs. Skipping them produces broken compositions.
 
-| Skill                | Command             | When to use                                                                                            |
-| -------------------- | ------------------- | ------------------------------------------------------------------------------------------------------ |
-| **compose-video**    | `/compose-video`    | Creating or editing ANY HTML composition — videos, animations, title cards, overlays, sub-compositions |
-| **captions**         | `/captions`         | Building captions from whisper transcripts — style detection, per-word styling                         |
-| **gsap-core**        | `/gsap-core`        | GSAP tweens: `gsap.to()`, `from()`, `fromTo()`, easing, stagger, defaults                              |
-| **gsap-timeline**    | `/gsap-timeline`    | Timeline sequencing, position parameter, labels, nesting                                               |
-| **gsap-performance** | `/gsap-performance` | Animation performance — transforms over layout props, will-change, batching                            |
+| Skill                    | Command                 | When to use                                                                                            |
+| ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| **hyperframes-compose**  | `/hyperframes-compose`  | Creating or editing ANY HTML composition — videos, animations, title cards, overlays, sub-compositions |
+| **hyperframes-captions** | `/hyperframes-captions` | Building captions from whisper transcripts — style detection, per-word styling                         |
+| **gsap-core**            | `/gsap-core`            | GSAP tweens: `gsap.to()`, `from()`, `fromTo()`, easing, stagger, defaults                              |
+| **gsap-timeline**        | `/gsap-timeline`        | Timeline sequencing, position parameter, labels, nesting                                               |
+| **gsap-performance**     | `/gsap-performance`     | Animation performance — transforms over layout props, will-change, batching                            |
 
 > **Skills not available?** Ask the user to run `npx hyperframes skills` and restart their
 > agent session, or install manually: `npx skills add heygen-com/hyperframes` and
