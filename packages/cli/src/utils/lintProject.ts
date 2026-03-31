@@ -7,6 +7,7 @@ export interface ProjectLintResult {
   results: Array<{ file: string; result: HyperframeLintResult }>;
   totalErrors: number;
   totalWarnings: number;
+  totalInfos: number;
 }
 
 /**
@@ -17,6 +18,7 @@ export function lintProject(project: ProjectDir): ProjectLintResult {
   const results: Array<{ file: string; result: HyperframeLintResult }> = [];
   let totalErrors = 0;
   let totalWarnings = 0;
+  let totalInfos = 0;
 
   // Lint root composition
   const rootHtml = readFileSync(project.indexPath, "utf-8");
@@ -24,6 +26,7 @@ export function lintProject(project: ProjectDir): ProjectLintResult {
   results.push({ file: "index.html", result: rootResult });
   totalErrors += rootResult.errorCount;
   totalWarnings += rootResult.warningCount;
+  totalInfos += rootResult.infoCount;
 
   // Lint sub-compositions in compositions/ directory
   const compositionsDir = resolve(project.dir, "compositions");
@@ -36,10 +39,11 @@ export function lintProject(project: ProjectDir): ProjectLintResult {
       results.push({ file: `compositions/${file}`, result });
       totalErrors += result.errorCount;
       totalWarnings += result.warningCount;
+      totalInfos += result.infoCount;
     }
   }
 
-  return { results, totalErrors, totalWarnings };
+  return { results, totalErrors, totalWarnings, totalInfos };
 }
 
 /**

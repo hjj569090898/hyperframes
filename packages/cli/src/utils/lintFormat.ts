@@ -8,16 +8,23 @@ export interface LintFormatOptions {
   showSummary?: boolean;
   /** Group errors before warnings per file (default: false — interleaved) */
   errorsFirst?: boolean;
+  /** Include info-level findings in output (default: false — only errors/warnings) */
+  verbose?: boolean;
 }
 
 /**
  * Format lint findings for console output. Used by lint, render, and dev commands.
  */
 export function formatLintFindings(
-  { results, totalErrors, totalWarnings }: ProjectLintResult,
+  { results, totalErrors, totalWarnings, totalInfos }: ProjectLintResult,
   options: LintFormatOptions = {},
 ): string[] {
-  const { showElementId = true, showSummary = false, errorsFirst = false } = options;
+  const {
+    showElementId = true,
+    showSummary = false,
+    errorsFirst = false,
+    verbose = false,
+  } = options;
   const lines: string[] = [];
   const multiFile = results.length > 1;
 
@@ -25,7 +32,13 @@ export function formatLintFindings(
     if (result.findings.length === 0) continue;
 
     const format = (finding: (typeof result.findings)[0]) => {
-      const prefix = finding.severity === "error" ? c.error("✗") : c.warn("⚠");
+      if (!verbose && finding.severity === "info") return;
+      const prefix =
+        finding.severity === "error"
+          ? c.error("✗")
+          : finding.severity === "warning"
+            ? c.warn("⚠")
+            : c.dim("ℹ");
       const fileLabel = multiFile ? c.dim(`[${file}] `) : "";
       const loc =
         showElementId && finding.elementId ? ` ${c.accent(`[${finding.elementId}]`)}` : "";
@@ -36,6 +49,7 @@ export function formatLintFindings(
     if (errorsFirst) {
       for (const f of result.findings) if (f.severity === "error") format(f);
       for (const f of result.findings) if (f.severity === "warning") format(f);
+      if (verbose) for (const f of result.findings) if (f.severity === "info") format(f);
     } else {
       for (const f of result.findings) format(f);
     }
@@ -44,7 +58,9 @@ export function formatLintFindings(
   if (showSummary) {
     const icon = totalErrors > 0 ? c.error("◇") : c.success("◇");
     lines.push("");
-    lines.push(`${icon}  ${totalErrors} error(s), ${totalWarnings} warning(s)`);
+    const summaryParts = [`${totalErrors} error(s)`, `${totalWarnings} warning(s)`];
+    if (verbose && totalInfos > 0) summaryParts.push(`${totalInfos} info(s)`);
+    lines.push(`${icon}  ${summaryParts.join(", ")}`);
   }
 
   return lines;
