@@ -1,36 +1,7 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback } from "react";
 import { useCaptionStore } from "../store";
 import type { CaptionStyle } from "../types";
-import { CaptionAnimationPanel } from "./CaptionAnimationPanel";
-
-// ---------------------------------------------------------------------------
-// Helper Components
-// ---------------------------------------------------------------------------
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="mb-3">
-      <div className="flex items-center gap-1.5 mt-2 mb-1.5">
-        <span className="text-2xs font-medium text-neutral-500 uppercase tracking-wider">
-          {label}
-        </span>
-      </div>
-      <div className="space-y-1">{children}</div>
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-2xs text-neutral-600 w-14 text-right flex-shrink-0">{label}</span>
-      <div className="flex-1 min-w-0">{children}</div>
-    </div>
-  );
-}
-
-const inputCls =
-  "w-full bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-2xs text-neutral-200 font-mono outline-none focus:border-neutral-600";
+import { Section, Row, inputCls } from "./shared";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -48,8 +19,6 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
   const selectedGroupId = useCaptionStore((s) => s.selectedGroupId);
   const updateSelectedStyle = useCaptionStore((s) => s.updateSelectedStyle);
   const updateGroupStyle = useCaptionStore((s) => s.updateGroupStyle);
-
-  const [activeTab, setActiveTab] = useState<"style" | "animation">("style");
 
   // Resolve effective style for the first selected segment
   const firstSegmentId = selectedSegmentIds.size > 0 ? [...selectedSegmentIds][0] : undefined;
@@ -75,7 +44,6 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
     ...groupStyle,
     ...segmentOverrides,
   };
-
 
   /**
    * Apply a CSS style change to selected word elements in the iframe DOM in real time.
@@ -112,9 +80,15 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
             const c = child as HTMLElement;
             if (c.dataset.captionWrapper === "true") {
               const inner = c.querySelector<HTMLElement>(":scope > span");
-              if (inner && idx === wi) { targetEls.push(inner); break; }
+              if (inner && idx === wi) {
+                targetEls.push(inner);
+                break;
+              }
             } else if (c.tagName === "SPAN") {
-              if (idx === wi) { targetEls.push(c); break; }
+              if (idx === wi) {
+                targetEls.push(c);
+                break;
+              }
             }
             idx++;
           }
@@ -123,15 +97,23 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
       }
 
       // Apply transform updates via gsap.set on the WRAPPER (not the word span)
-      const hasTransform = updates.x !== undefined || updates.y !== undefined ||
-        updates.scaleX !== undefined || updates.scaleY !== undefined || updates.rotation !== undefined;
+      const hasTransform =
+        updates.x !== undefined ||
+        updates.y !== undefined ||
+        updates.scaleX !== undefined ||
+        updates.scaleY !== undefined ||
+        updates.rotation !== undefined;
 
       if (hasTransform) {
         try {
-          const iframeGsap = (iframeRef.current?.contentWindow as unknown as {
-            gsap?: { set: (el: HTMLElement, props: Record<string, unknown>) => void;
-                     getProperty: (el: HTMLElement, prop: string) => number };
-          })?.gsap;
+          const iframeGsap = (
+            iframeRef.current?.contentWindow as unknown as {
+              gsap?: {
+                set: (el: HTMLElement, props: Record<string, unknown>) => void;
+                getProperty: (el: HTMLElement, prop: string) => number;
+              };
+            }
+          )?.gsap;
           if (iframeGsap) {
             for (const el of targetEls) {
               // Get or create wrapper
@@ -156,7 +138,9 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
               });
             }
           }
-        } catch { /* cross-origin */ }
+        } catch {
+          /* cross-origin */
+        }
       }
     },
     [iframeRef, model, selectedSegmentIds],
@@ -194,101 +178,60 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
   const scaleX = effectiveStyle.scaleX ?? 1;
 
   // Count label
-  const countLabel = selectedSegmentIds.size === 1
-    ? "1 word"
-    : `${selectedSegmentIds.size} words`;
+  const countLabel = selectedSegmentIds.size === 1 ? "1 word" : `${selectedSegmentIds.size} words`;
 
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Header */}
       <div className="px-3 py-2 border-b border-neutral-800 flex-shrink-0">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-2xs text-neutral-500">
-            {countLabel}
-          </span>
-        </div>
-        {/* Tab switcher */}
-        <div className="flex gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab("style")}
-            className={[
-              "flex-1 py-0.5 rounded text-2xs font-medium transition-colors",
-              activeTab === "style"
-                ? "bg-studio-accent/20 text-studio-accent border border-studio-accent/50"
-                : "text-neutral-500 border border-neutral-800 hover:text-neutral-300 hover:border-neutral-600",
-            ].join(" ")}
-          >
-            Style
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("animation")}
-            className={[
-              "flex-1 py-0.5 rounded text-2xs font-medium transition-colors",
-              activeTab === "animation"
-                ? "bg-studio-accent/20 text-studio-accent border border-studio-accent/50"
-                : "text-neutral-500 border border-neutral-800 hover:text-neutral-300 hover:border-neutral-600",
-            ].join(" ")}
-          >
-            Animation
-          </button>
-        </div>
+        <span className="text-2xs text-neutral-500">{countLabel}</span>
       </div>
 
-      {/* Animation tab */}
-      {activeTab === "animation" && <CaptionAnimationPanel />}
+      <div className="flex-1 overflow-y-auto px-3 py-2">
+        <Section label="Position">
+          <Row label="X">
+            <input
+              type="number"
+              value={x}
+              onChange={(e) => handleStyleChange({ x: Number(e.target.value) })}
+              className={inputCls}
+            />
+          </Row>
+          <Row label="Y">
+            <input
+              type="number"
+              value={y}
+              onChange={(e) => handleStyleChange({ y: Number(e.target.value) })}
+              className={inputCls}
+            />
+          </Row>
+        </Section>
 
-      {/* Style tab — Transform only */}
-      {activeTab === "style" && (
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          <Section label="Position">
-            <Row label="X">
-              <input
-                type="number"
-                value={x}
-                onChange={(e) => handleStyleChange({ x: Number(e.target.value) })}
-                className={inputCls}
-              />
-            </Row>
-
-            <Row label="Y">
-              <input
-                type="number"
-                value={y}
-                onChange={(e) => handleStyleChange({ y: Number(e.target.value) })}
-                className={inputCls}
-              />
-            </Row>
-          </Section>
-
-          <Section label="Transform">
-            <Row label="Scale">
-              <input
-                type="number"
-                value={scaleX}
-                step={0.1}
-                onChange={(e) =>
-                  handleStyleChange({
-                    scaleX: Number(e.target.value),
-                    scaleY: Number(e.target.value),
-                  })
-                }
-                className={inputCls}
-              />
-            </Row>
-
-            <Row label="Rotation">
-              <input
-                type="number"
-                value={rotation}
-                onChange={(e) => handleStyleChange({ rotation: Number(e.target.value) })}
-                className={inputCls}
-              />
-            </Row>
-          </Section>
-        </div>
-      )}
+        <Section label="Transform">
+          <Row label="Scale">
+            <input
+              type="number"
+              value={scaleX}
+              step={0.1}
+              onChange={(e) =>
+                handleStyleChange({
+                  scaleX: Number(e.target.value),
+                  scaleY: Number(e.target.value),
+                })
+              }
+              className={inputCls}
+            />
+          </Row>
+          <Row label="Rotation">
+            <input
+              type="number"
+              value={rotation}
+              onChange={(e) => handleStyleChange({ rotation: Number(e.target.value) })}
+              className={inputCls}
+            />
+          </Row>
+        </Section>
+      </div>
     </div>
   );
 });
