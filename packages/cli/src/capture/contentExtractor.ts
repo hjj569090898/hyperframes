@@ -174,7 +174,11 @@ export async function captionImagesWithGemini(
     // Free tier: 5 RPM → batch 5, 12s pause (~$0 but slow)
     // Paid tier: 2000 RPM → batch 20, 1s pause (~$0.001/image, fast)
     // We try a larger batch first; if rate-limited, fall back to smaller batches.
-    const model = "gemini-3.1-flash-lite-preview";
+    // Default is a preview model — update when GA ships.
+    // Benchmark (49 images, paid tier): 3.1-flash-lite-preview ~507ms/img 131ch avg,
+    // 2.5-flash-lite ~230ms/img 117ch avg. Preview has richer captions but higher variance.
+    // Override: HYPERFRAMES_GEMINI_MODEL=gemini-2.5-flash-lite
+    const model = process.env.HYPERFRAMES_GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
     const BATCH_SIZE = 20;
     for (let i = 0; i < imageFiles.length; i += BATCH_SIZE) {
       const batch = imageFiles.slice(i, i + BATCH_SIZE);

@@ -69,7 +69,7 @@
           {
             "group": "Guides",
             "pages": [
-"guides/website-to-video",
+              "guides/website-to-video",
               "guides/prompting",
               "guides/gsap-animation",
               "guides/rendering",

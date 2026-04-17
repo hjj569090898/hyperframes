@@ -18,7 +18,6 @@ Give your AI agent a URL and a creative direction. It captures the site, extract
 
     ```bash
     npx skills add heygen-com/hyperframes
-    npx skills add greensock/gsap-skills
     ```
 
     Works with [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [Gemini CLI](https://github.com/google-gemini/gemini-cli), and [Codex CLI](https://github.com/openai/codex).
@@ -27,11 +26,14 @@ Give your AI agent a URL and a creative direction. It captures the site, extract
     Open your agent in any directory and describe the video you want:
 
     ```
-    Create a 25-second product launch video from https://stripe.com.
-    Bold, cinematic, financial infrastructure energy.
+    Create a 25-second product launch video from https://example.com. Bold, cinematic, dark theme energy.
     ```
 
-    The agent discovers the `/website-to-hyperframes` skill and runs the full pipeline automatically — capture, design, script, storyboard, voiceover, build, validate.
+    The agent loads the skill when they see a URL and a video request, and runs the full pipeline — capture, design, script, storyboard, voiceover, build, validate.
+
+    <Note>
+      Agents also trigger this skill automatically when they see a URL and a video request.
+    </Note>
   </Step>
   <Step title="Preview">
     ```bash
@@ -203,7 +205,7 @@ You don't need to re-run the full pipeline to make changes:
     npx skills add heygen-com/hyperframes
     ```
 
-    The skill triggers automatically when the agent sees a URL and a video request. To invoke explicitly: _"Use the /website-to-hyperframes skill."_
+    Lead your prompt with _"Use the /website-to-hyperframes skill"_ for the most reliable results. Agents also discover it automatically when they see a URL and a video request.
   </Accordion>
 </AccordionGroup>
 
