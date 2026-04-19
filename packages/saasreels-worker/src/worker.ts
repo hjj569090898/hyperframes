@@ -59,7 +59,7 @@ function validatePayload(kind: SaasReelsWorkerTaskKind, payload: Record<string, 
   requireString(payload.versionId, "payload.versionId");
 }
 
-function sanitizeTaskId(taskId: string): string {
+export function sanitizeTaskId(taskId: string): string {
   const sanitized = taskId.replace(/[^a-zA-Z0-9_.-]/g, "_");
   return sanitized || "task";
 }
