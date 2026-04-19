@@ -30,12 +30,12 @@ FONTS — use @font-face with the captured font files, NOT Google Fonts:
 
 Read DESIGN.md for exact colors and Do's/Don'ts.
 Read techniques.md for animation code patterns.
-Invoke /hyperframes for composition structure rules.
+Load the `hyperframes` skill for composition structure rules.
 ```
 
 After each sub-agent finishes, verify the composition references `../assets/` — if it used inline SVGs or Google Fonts instead of the captured files, fix it before moving on.
 
-Invoke the `/hyperframes` skill first — it has the rules for data attributes, timeline contracts, deterministic rendering, and layout. Everything below supplements those rules, not replaces them.
+Load the `hyperframes` skill first — it has the rules for data attributes, timeline contracts, deterministic rendering, and layout. Everything below supplements those rules, not replaces them.
 
 ---
 
@@ -113,6 +113,9 @@ After building the composition, check WITH ACTUAL CODE:
 - [ ] No full-screen dark linear gradients (H.264 creates visible banding — use solid + localized radial glows)
 - [ ] Timeline registered: `window.__timelines["comp-id"] = tl`
 - [ ] Colors match DESIGN.md exactly (paste the HEX value, don't approximate)
+- [ ] **Every `<template>` root element** — not just `index.html`, but every sub-composition's root — has `data-start="0"` **and** `data-duration="<beat_seconds>"`. The linter warns `root_composition_missing_data_start` / `root_composition_missing_data_duration` when missing; without `data-duration` the runtime may infer `Infinity` on repeating animations and stall playback.
+- [ ] **Caption exits have a hard kill.** If you animate captions out with `tl.to(groupEl, { opacity: 0 }, group.end)`, follow it with `tl.set(groupEl, { opacity: 0, visibility: "hidden" }, group.end)` as a deterministic kill — per-word karaoke tweens can override the exit tween and leave captions stuck on screen. Linter: `caption_exit_missing_hard_kill`.
+- [ ] **No duplicate media nodes.** If the same image/video source is referenced twice with identical `data-start` + `data-duration`, the compiler discovers it twice and can double-render. Dedupe by using a single `<img>` with appropriate z-layering, or stagger the `data-start` values. Linter: `duplicate_media_discovery_risk`.
 
 **If `skills/hyperframes-animation-map/` is installed**, run it:
 

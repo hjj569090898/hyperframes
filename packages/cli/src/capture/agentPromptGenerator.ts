@@ -1,9 +1,13 @@
 /**
- * Generate CLAUDE.md (and .cursorrules) for captured website projects.
+ * Generate AGENTS.md and CLAUDE.md for captured website projects.
+ *
+ * Writes the same content to both filenames so any AI agent auto-discovers it:
+ *   - AGENTS.md  — universal convention (Cursor, Codex, Gemini CLI, Windsurf, Aider, Jules)
+ *   - CLAUDE.md  — Claude Code convention
  *
  * This file generates a DATA INVENTORY that tells the AI agent what files
  * exist and what they contain. The actual workflow lives in the
- * /website-to-hyperframes skill — this file points agents there.
+ * website-to-hyperframes skill — this file points agents there.
  */
 
 import { writeFileSync } from "node:fs";
@@ -32,8 +36,8 @@ export function generateAgentPrompt(
     hasShaders,
     detectedLibraries,
   );
+  writeFileSync(join(outputDir, "AGENTS.md"), prompt, "utf-8");
   writeFileSync(join(outputDir, "CLAUDE.md"), prompt, "utf-8");
-  writeFileSync(join(outputDir, ".cursorrules"), prompt, "utf-8");
 }
 
 function buildPrompt(
@@ -104,7 +108,7 @@ function buildPrompt(
 
 Source: ${url}
 
-To create a video from this capture, use the \`/website-to-hyperframes\` skill.
+To create a video from this capture, use the \`website-to-hyperframes\` skill.
 
 ## What's in This Capture
 
