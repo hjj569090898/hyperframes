@@ -21,7 +21,7 @@
     },
     "packages/cli": {
       "name": "@hyperframes/cli",
-      "version": "0.3.0",
+      "version": "0.4.6",
       "bin": {
         "hyperframes": "./dist/cli.js",
       },
@@ -61,7 +61,7 @@
     },
     "packages/core": {
       "name": "@hyperframes/core",
-      "version": "0.3.0",
+      "version": "0.4.6",
       "dependencies": {
         "@chenglou/pretext": "^0.0.5",
       },
@@ -87,7 +87,7 @@
     },
     "packages/engine": {
       "name": "@hyperframes/engine",
-      "version": "0.3.0",
+      "version": "0.4.6",
       "dependencies": {
         "@hono/node-server": "^1.13.0",
         "@hyperframes/core": "workspace:^",
@@ -104,7 +104,7 @@
     },
     "packages/player": {
       "name": "@hyperframes/player",
-      "version": "0.3.0",
+      "version": "0.4.6",
       "devDependencies": {
         "tsup": "^8.0.0",
         "typescript": "^5.0.0",
@@ -113,7 +113,7 @@
     },
     "packages/producer": {
       "name": "@hyperframes/producer",
-      "version": "0.3.0",
+      "version": "0.4.6",
       "dependencies": {
         "@fontsource/archivo-black": "^5.2.8",
         "@fontsource/eb-garamond": "^5.2.7",
@@ -149,9 +149,24 @@
         "typescript": "^5.7.2",
       },
     },
+    "packages/saasreels-worker": {
+      "name": "@hyperframes/saasreels-worker",
+      "version": "0.0.0",
+      "bin": {
+        "saasreels-worker": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@hyperframes/producer": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^24.10.13",
+        "tsx": "^4.21.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "packages/shader-transitions": {
       "name": "@hyperframes/shader-transitions",
-      "version": "0.3.0",
+      "version": "0.4.6",
       "dependencies": {
         "html2canvas": "^1.4.1",
       },
@@ -163,7 +178,7 @@
     },
     "packages/studio": {
       "name": "@hyperframes/studio",
-      "version": "0.3.0",
+      "version": "0.4.6",
       "dependencies": {
         "@codemirror/autocomplete": "^6.20.1",
         "@codemirror/commands": "^6.10.3",
@@ -442,6 +457,8 @@
     "@hyperframes/player": ["@hyperframes/player@workspace:packages/player"],
 
     "@hyperframes/producer": ["@hyperframes/producer@workspace:packages/producer"],
+
+    "@hyperframes/saasreels-worker": ["@hyperframes/saasreels-worker@workspace:packages/saasreels-worker"],
 
     "@hyperframes/shader-transitions": ["@hyperframes/shader-transitions@workspace:packages/shader-transitions"],
 
@@ -1587,6 +1604,8 @@
 
     "@hyperframes/producer/esbuild": ["esbuild@0.27.4", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.27.4", "@esbuild/android-arm": "0.27.4", "@esbuild/android-arm64": "0.27.4", "@esbuild/android-x64": "0.27.4", "@esbuild/darwin-arm64": "0.27.4", "@esbuild/darwin-x64": "0.27.4", "@esbuild/freebsd-arm64": "0.27.4", "@esbuild/freebsd-x64": "0.27.4", "@esbuild/linux-arm": "0.27.4", "@esbuild/linux-arm64": "0.27.4", "@esbuild/linux-ia32": "0.27.4", "@esbuild/linux-loong64": "0.27.4", "@esbuild/linux-mips64el": "0.27.4", "@esbuild/linux-ppc64": "0.27.4", "@esbuild/linux-riscv64": "0.27.4", "@esbuild/linux-s390x": "0.27.4", "@esbuild/linux-x64": "0.27.4", "@esbuild/netbsd-arm64": "0.27.4", "@esbuild/netbsd-x64": "0.27.4", "@esbuild/openbsd-arm64": "0.27.4", "@esbuild/openbsd-x64": "0.27.4", "@esbuild/openharmony-arm64": "0.27.4", "@esbuild/sunos-x64": "0.27.4", "@esbuild/win32-arm64": "0.27.4", "@esbuild/win32-ia32": "0.27.4", "@esbuild/win32-x64": "0.27.4" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-Rq4vbHnYkK5fws5NF7MYTU68FPRE1ajX7heQ/8QXXWqNgqqJ/GkmmyxIzUnf2Sr/bakf8l54716CcMGHYhMrrQ=="],
 
+    "@hyperframes/saasreels-worker/@types/node": ["@types/node@24.12.0", "", { "dependencies": { "undici-types": "7.16.0" } }, "sha512-GYDxsZi3ChgmckRT9HPU0WEhKLP08ev/Yfcq2AstjrDASOYCSXeyjDsHg4v5t4jOj7cyDX3vmprafKlWIG9MXQ=="],
+
     "@isaacs/cliui/string-width": ["string-width@5.1.2", "", { "dependencies": { "eastasianwidth": "0.2.0", "emoji-regex": "9.2.2", "strip-ansi": "7.2.0" } }, "sha512-HnLOCR3vjcY8beoNLtcjZ5/nxn2afmME6lhrDrebokqMap+XbeW8n9TXpPDOqdGK5qcI3oT0GKTW6wC7EMiVqA=="],
 
     "@isaacs/cliui/strip-ansi": ["strip-ansi@7.2.0", "", { "dependencies": { "ansi-regex": "6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
@@ -1730,6 +1749,8 @@
     "@hyperframes/producer/esbuild/@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.27.4", "", { "os": "win32", "cpu": "ia32" }, "sha512-DAyGLS0Jz5G5iixEbMHi5KdiApqHBWMGzTtMiJ72ZOLhbu/bzxgAe8Ue8CTS3n3HbIUHQz/L51yMdGMeoxXNJw=="],
 
     "@hyperframes/producer/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.4", "", { "os": "win32", "cpu": "x64" }, "sha512-+knoa0BDoeXgkNvvV1vvbZX4+hizelrkwmGJBdT17t8FNPwG2lKemmuMZlmaNQ3ws3DKKCxpb4zRZEIp3UxFCg=="],
+
+    "@hyperframes/saasreels-worker/@types/node/undici-types": ["undici-types@7.16.0", "", {}, "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw=="],
 
     "@isaacs/cliui/string-width/emoji-regex": ["emoji-regex@9.2.2", "", {}, "sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg=="],
 
