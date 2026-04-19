@@ -51,6 +51,18 @@ bun run --filter @hyperframes/saasreels-worker dev -- run-once
 bun run --filter @hyperframes/saasreels-worker dev -- run-loop
 ```
 
+## Run Against Postgres worker_task
+
+```bash
+bun run --filter @hyperframes/saasreels-worker dev -- run-once --queue-backend postgres
+```
+
+```bash
+bun run --filter @hyperframes/saasreels-worker dev -- run-loop --queue-backend postgres --lease-ms 300000
+```
+
+For Postgres mode, the worker reads `DATABASE_URL` from the environment unless you pass `--database-url <url>`.
+
 Useful options:
 
 - `--queue-dir <path>` overrides the local queue root.

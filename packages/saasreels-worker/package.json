@@ -16,10 +16,12 @@
     "dev": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@hyperframes/producer": "workspace:*"
+    "@hyperframes/producer": "workspace:*",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/node": "^24.10.13",
+    "@types/pg": "^8.15.6",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0"
   },

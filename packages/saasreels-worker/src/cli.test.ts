@@ -40,6 +40,15 @@ test("parses enqueue and run-once commands", () => {
     "--poll-ms",
     "0",
   ]);
+  const postgresRunOnceArgs = parseWorkerCliArgs([
+    "run-once",
+    "--queue-backend",
+    "postgres",
+    "--database-url",
+    "postgresql://worker:secret@localhost:5432/saasreels",
+    "--lease-ms",
+    "90000",
+  ]);
 
   assert.equal(enqueueArgs.command, "enqueue");
   assert.equal(enqueueArgs.queueDir, "tasks");
@@ -49,6 +58,12 @@ test("parses enqueue and run-once commands", () => {
   assert.equal(runLoopArgs.command, "run-loop");
   assert.equal(runLoopArgs.maxIterations, 3);
   assert.equal(runLoopArgs.pollMs, 0);
+  assert.equal(postgresRunOnceArgs.queueBackend, "postgres");
+  assert.equal(
+    postgresRunOnceArgs.databaseUrl,
+    "postgresql://worker:secret@localhost:5432/saasreels",
+  );
+  assert.equal(postgresRunOnceArgs.leaseMs, 90000);
 });
 
 test("runs dry-run worker from a task file", async () => {

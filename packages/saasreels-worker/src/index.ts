@@ -11,6 +11,17 @@ export {
 } from "./worker.js";
 
 export {
+  WORKER_QUEUE_BACKENDS,
+  createLocalQueueAdapter,
+  type WorkerExecutionResult,
+  type WorkerQueueAdapter,
+  type WorkerQueueBackend,
+  type WorkerQueueClaim,
+  type WorkerQueueCompleteResult,
+  type WorkerQueueFailureResult,
+} from "./queue.js";
+
+export {
   LOCAL_QUEUE_STATUSES,
   claimNextLocalTask,
   completeLocalTask,
@@ -26,6 +37,13 @@ export {
   type LocalTaskClaim,
   type LocalTaskRecord,
 } from "./localQueue.js";
+
+export {
+  createPostgresQueueAdapter,
+  type CreatePostgresQueueAdapterOptions,
+  type PostgresQueryClient,
+  type PostgresWorkerTaskRow,
+} from "./postgresQueue.js";
 
 export {
   runWorkerLoop,

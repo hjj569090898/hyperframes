@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { enqueueLocalTask, resolveLocalQueuePaths } from "./localQueue.js";
+import type { WorkerQueueAdapter } from "./queue.js";
 import { runWorkerLoop, runWorkerOnce } from "./runner.js";
 
 test("runWorkerOnce returns idle when no queued task exists", async () => {
@@ -116,6 +117,57 @@ test("runWorkerLoop processes queued tasks until the queue is idle", async () =>
     ]);
   } finally {
     await rm(queueRoot, { recursive: true, force: true });
+    await rm(outputRoot, { recursive: true, force: true });
+  }
+});
+
+test("runWorkerOnce can execute against an injected queue adapter", async () => {
+  const outputRoot = await mkdtemp(join(tmpdir(), "saasreels-worker-adapter-output-"));
+  try {
+    const events: string[] = [];
+    const adapter: WorkerQueueAdapter = {
+      name: "fake",
+      async claimNext() {
+        events.push("claim");
+        return {
+          workerId: "worker_adapter_test",
+          claim: { source: "fake" },
+          task: {
+            id: "task_adapter_001",
+            kind: "generate_video",
+            status: "claimed",
+            payload: {
+              projectId: "project_adapter",
+              versionId: "version_adapter",
+            },
+          },
+        };
+      },
+      async markRunning(claim) {
+        events.push(`running:${claim.task.id}`);
+      },
+      async complete(claim, result) {
+        events.push(`complete:${claim.task.id}`);
+        return {
+          resultPath: join(result.workspaceDir, "fake.result.json"),
+        };
+      },
+      async fail() {
+        assert.fail("fail should not be called");
+      },
+    };
+
+    const result = await runWorkerOnce({
+      queueAdapter: adapter,
+      outputRoot,
+      now: () => new Date("2026-04-19T06:07:08.000Z"),
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.taskId, "task_adapter_001");
+    assert.equal(result.resultPath, join(result.workspaceDir, "fake.result.json"));
+    assert.deepEqual(events, ["claim", "running:task_adapter_001", "complete:task_adapter_001"]);
+  } finally {
     await rm(outputRoot, { recursive: true, force: true });
   }
 });

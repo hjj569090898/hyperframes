@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 import { enqueueLocalTask } from "./localQueue.js";
+import { WORKER_QUEUE_BACKENDS, type WorkerQueueBackend } from "./queue.js";
 import {
   runWorkerLoop,
   runWorkerOnce,
@@ -26,6 +27,9 @@ export type WorkerCliArgs = {
   workerId?: string;
   maxIterations?: number;
   pollMs?: number;
+  queueBackend?: WorkerQueueBackend;
+  databaseUrl?: string;
+  leaseMs?: number;
 };
 
 export type WorkerCliResult =
@@ -49,6 +53,14 @@ function readNumberFlagValue(argv: string[], index: number, flag: string): numbe
     throw new Error(`Invalid numeric value for ${flag}: ${raw}`);
   }
   return value;
+}
+
+function readQueueBackendFlagValue(argv: string[], index: number): WorkerQueueBackend {
+  const value = readFlagValue(argv, index, "--queue-backend");
+  if (WORKER_QUEUE_BACKENDS.includes(value as WorkerQueueBackend)) {
+    return value as WorkerQueueBackend;
+  }
+  throw new Error(`Unsupported queue backend: ${value}`);
 }
 
 export function parseWorkerCliArgs(argv: string[]): WorkerCliArgs {
@@ -100,6 +112,21 @@ export function parseWorkerCliArgs(argv: string[]): WorkerCliArgs {
       index += 1;
       continue;
     }
+    if (token === "--queue-backend") {
+      args.queueBackend = readQueueBackendFlagValue(argv, index);
+      index += 1;
+      continue;
+    }
+    if (token === "--database-url") {
+      args.databaseUrl = readFlagValue(argv, index, token);
+      index += 1;
+      continue;
+    }
+    if (token === "--lease-ms") {
+      args.leaseMs = readNumberFlagValue(argv, index, token);
+      index += 1;
+      continue;
+    }
     if (token === "--dry-run") {
       continue;
     }
@@ -131,11 +158,17 @@ async function readTaskJson(args: WorkerCliArgs): Promise<unknown> {
 
 export async function runWorkerCli(argv: string[]): Promise<WorkerCliResult> {
   const args = parseWorkerCliArgs(argv);
+  if (args.command === "enqueue" && args.queueBackend === "postgres") {
+    throw new Error("enqueue only supports the local queue backend in this phase");
+  }
   if (args.command === "run-once") {
     return runWorkerOnce({
       queueRoot: args.queueDir,
       outputRoot: args.outputDir,
       workerId: args.workerId,
+      queueBackend: args.queueBackend,
+      databaseUrl: args.databaseUrl,
+      leaseDurationMs: args.leaseMs,
     });
   }
   if (args.command === "run-loop") {
@@ -145,6 +178,9 @@ export async function runWorkerCli(argv: string[]): Promise<WorkerCliResult> {
       workerId: args.workerId,
       maxIterations: args.maxIterations,
       pollMs: args.pollMs,
+      queueBackend: args.queueBackend,
+      databaseUrl: args.databaseUrl,
+      leaseDurationMs: args.leaseMs,
     });
   }
 
