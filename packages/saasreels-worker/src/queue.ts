@@ -5,74 +5,61 @@ import {
   type LocalQueueOptions,
   type LocalTaskClaim,
 } from "./localQueue.js";
-import type { DryRunWorkspaceResult, SaasReelsWorkerTask } from "./worker.js";
+import { type SaasReelsWorkerTask } from "./worker.js";
 
 export const WORKER_QUEUE_BACKENDS = ["local", "postgres"] as const;
-
 export type WorkerQueueBackend = (typeof WORKER_QUEUE_BACKENDS)[number];
 
-export type WorkerExecutionResult = DryRunWorkspaceResult & {
-  mode: "dry-run";
-};
+export type WorkerExecutionResult = Record<string, unknown>;
+export type WorkerQueueCompleteResult = Record<string, unknown>;
+export type WorkerQueueFailureResult = Record<string, unknown>;
 
-export type WorkerQueueClaim<TClaim = unknown> = {
+export interface WorkerQueueClaim<T = unknown> {
   task: SaasReelsWorkerTask;
   workerId: string;
-  claim: TClaim;
-};
+  claim: T;
+}
 
-export type WorkerQueueCompleteResult = {
-  resultPath?: string;
-};
-
-export type WorkerQueueFailureResult = {
-  errorPath?: string;
-};
-
-export interface WorkerQueueAdapter<TClaim = unknown> {
+export interface WorkerQueueAdapter<T = unknown> {
   name: string;
-  claimNext(): Promise<WorkerQueueClaim<TClaim> | null>;
-  markRunning(claim: WorkerQueueClaim<TClaim>): Promise<void>;
+  claimNext(): Promise<WorkerQueueClaim<T> | null>;
+  markRunning(claim: WorkerQueueClaim<T>): Promise<void>;
   complete(
-    claim: WorkerQueueClaim<TClaim>,
+    claim: WorkerQueueClaim<T>,
     result: WorkerExecutionResult,
   ): Promise<WorkerQueueCompleteResult>;
-  fail(claim: WorkerQueueClaim<TClaim>, error: unknown): Promise<WorkerQueueFailureResult>;
+  fail(claim: WorkerQueueClaim<T>, error: unknown): Promise<WorkerQueueFailureResult>;
   close?(): Promise<void>;
 }
 
+export type CreateLocalQueueAdapterOptions = LocalQueueOptions & {
+  workerId?: string;
+};
+
 export function createLocalQueueAdapter(
-  options: LocalQueueOptions & { workerId?: string } = {},
+  options: CreateLocalQueueAdapterOptions = {},
 ): WorkerQueueAdapter<LocalTaskClaim> {
   return {
     name: "local",
     async claimNext() {
-      const claim = await claimNextLocalTask({
-        queueRoot: options.queueRoot,
-        workerId: options.workerId,
-      });
-      if (!claim) {
-        return null;
-      }
-
+      const claim = await claimNextLocalTask(options);
+      if (!claim) return null;
       return {
         task: claim.task,
         workerId: claim.workerId,
         claim,
       };
     },
-    async markRunning() {},
+    async markRunning(_claim) {
+      // Local queue updates status to 'running' immediately on claim
+    },
     async complete(claim, result) {
       const completed = await completeLocalTask(claim.claim, result);
-      return {
-        resultPath: completed.resultPath,
-      };
+      return { resultPath: completed.resultPath };
     },
     async fail(claim, error) {
       const failed = await failLocalTask(claim.claim, error);
-      return {
-        errorPath: failed.errorPath,
-      };
+      return { errorPath: failed.errorPath };
     },
   };
 }

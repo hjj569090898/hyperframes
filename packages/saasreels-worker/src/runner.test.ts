@@ -33,6 +33,7 @@ test("runWorkerOnce claims, materializes, and completes one queued task", async 
           versionId: "version_runner",
           sourceUrl: "https://example.com",
           templateId: "product-demo",
+          scenes: [],
         },
       },
       { queueRoot },
@@ -80,6 +81,7 @@ test("runWorkerLoop processes queued tasks until the queue is idle", async () =>
         payload: {
           projectId: "project_loop_1",
           versionId: "version_loop_1",
+          scenes: [],
         },
       },
       { queueRoot },
@@ -91,6 +93,7 @@ test("runWorkerLoop processes queued tasks until the queue is idle", async () =>
         payload: {
           projectId: "project_loop_2",
           versionId: "version_loop_2",
+          scenes: [],
         },
       },
       { queueRoot },
@@ -139,6 +142,7 @@ test("runWorkerOnce can execute against an injected queue adapter", async () => 
             payload: {
               projectId: "project_adapter",
               versionId: "version_adapter",
+              scenes: [],
             },
           },
         };

@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { translateRenderSpecToHtml, type RenderSpec } from "./translate.js";
 
 export const SAASREELS_WORKER_TASK_KINDS = ["generate_video", "export_video"] as const;
 
@@ -120,9 +121,14 @@ export async function materializeDryRunWorkspace(
 
   const taskPath = join(workspaceDir, "task.json");
   const manifestPath = join(workspaceDir, "manifest.json");
+  const indexPath = join(workspaceDir, "index.html");
+
+  // Perform translation
+  const html = translateRenderSpecToHtml(task.payload as unknown as RenderSpec);
 
   await writeFile(taskPath, JSON.stringify(task, null, 2) + "\n", "utf8");
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  await writeFile(indexPath, html, "utf8");
 
   return {
     taskId: task.id,

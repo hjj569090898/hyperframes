@@ -53,3 +53,4 @@ export {
   type WorkerRunOnceOptions,
   type WorkerRunOnceResult,
 } from "./runner.js";
+export { translateRenderSpecToHtml, type RenderSpec, type RenderScene } from "./translate.js";

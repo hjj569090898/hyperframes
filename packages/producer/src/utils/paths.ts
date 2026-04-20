@@ -2,7 +2,7 @@
  * Path resolution utilities for the render pipeline.
  */
 
-import { resolve, basename, join, relative, isAbsolute } from "node:path";
+import { resolve, basename, join } from "node:path";
 
 export interface RenderPaths {
   absoluteProjectDir: string;
@@ -26,62 +26,34 @@ const DEFAULT_RENDERS_DIR =
  * Equality counts as "inside" (a directory contains itself).
  */
 export function isPathInside(childPath: string, parentPath: string): boolean {
-  const absChild = resolve(childPath);
-  const absParent = resolve(parentPath);
-  if (absChild === absParent) return true;
-  const rel = relative(absParent, absChild);
-  // `relative()` returns "" when paths are equal, ".." or "..\\foo" when child
-  // is above the parent, and an absolute path when they live on different
-  // drives/volumes (Windows) — none of which count as "inside".
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  try {
+    const absChild = resolve(childPath).toLowerCase().replace(/\\/g, "/");
+    const absParent = resolve(parentPath).toLowerCase().replace(/\\/g, "/");
+
+    if (absChild === absParent) return true;
+
+    const parentWithSlash = absParent.endsWith("/") ? absParent : absParent + "/";
+    return absChild.startsWith(parentWithSlash);
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Build a safe, cross-platform relative key for an absolute asset path
  * that lives outside the project directory.
- *
- * Windows absolute paths (`D:\coder\assets\segment.wav`) break two
- * downstream assumptions when passed as-is to `path.join(compileDir, key)`:
- *   1. The drive letter makes the path absolute, so `join()` silently
- *      discards `compileDir`.
- *   2. The backslashes and colon are invalid inside some OS sandboxes
- *      and HTTP URL encodings.
- *
- * We sanitise into `hf-ext/...` form using forward slashes, stripping
- * the colon after drive letters, the Windows extended-length prefix
- * (`\\?\`), and the UNC prefix (`\\server\share\`). The result is a
- * pure relative path that joins cleanly on every platform.
- *
- * Caller contract: `absPath` is expected to be canonical — typically
- * produced by `path.resolve()` upstream. This helper does NOT strip
- * `..` components on its own. `isPathInside` at copy time is the
- * defensive backstop.
  */
 export function toExternalAssetKey(absPath: string): string {
-  // Short-circuit if already a sanitised key — prevents double-wrap
-  // producing `hf-ext/hf-ext/...`.
   if (absPath.startsWith("hf-ext/")) return absPath;
 
-  // Normalise to forward slashes first so every subsequent pattern is
-  // separator-agnostic.
-  let normalised = absPath.replace(/\\/g, "/");
-
-  // Windows extended-length prefix: `//?/` (was `\\?\`). Strip entirely —
-  // the actual path follows. `//?/UNC/server/share/...` is the UNC
-  // extended-length form; normalise to match the UNC branch below.
-  normalised = normalised.replace(/^\/\/\?\/UNC\//i, "//");
-  normalised = normalised.replace(/^\/\/\?\//, "");
-
-  // UNC paths (`\\server\share\file`). Collapse to
-  // `unc/server/share/file` so two different servers can't collide
-  // under the same relative key.
-  normalised = normalised.replace(/^\/\/([^/]+)\//, "unc/$1/");
-
-  // Strip remaining leading forward slashes (Unix absolute).
-  normalised = normalised.replace(/^\/+/, "");
+  // Extremely aggressive normalization for Windows
+  let normalised = resolve(absPath).replace(/\\/g, "/");
 
   // Strip a leading drive-letter colon (Windows: "D:/coder" → "D/coder").
   normalised = normalised.replace(/^([A-Za-z]):\/?/, "$1/");
+
+  // Clean up any remaining double slashes
+  normalised = normalised.replace(/\/+/g, "/").replace(/^\/+/, "");
 
   return "hf-ext/" + normalised;
 }
