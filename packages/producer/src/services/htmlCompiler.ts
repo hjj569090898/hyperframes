@@ -10,7 +10,7 @@
  */
 
 import { readFileSync, existsSync, mkdirSync } from "fs";
-import { join, dirname, resolve } from "path";
+import { join, dirname, isAbsolute, resolve } from "path";
 import { parseHTML } from "linkedom";
 import postcss from "postcss";
 import {
@@ -130,7 +130,7 @@ async function resolveMediaDuration(
       // The element will get duration 0 and be excluded from the render.
       return { duration: 0, resolvedPath: src };
     }
-  } else if (!filePath.startsWith("/")) {
+  } else if (!isAbsolute(filePath)) {
     filePath = join(baseDir, filePath);
   }
 
