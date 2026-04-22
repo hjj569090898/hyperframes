@@ -15,6 +15,8 @@ import { join, resolve } from "node:path";
 import { prepareWorkspaceAssets } from "./assets.js";
 import { fetchProjectAssets, fetchProjectIntents } from "./db.js";
 import { CinematicDirector } from "./director.js";
+import { validateRenderSpecOrThrow } from "./renderSpecValidation.js";
+import type { RenderSpec } from "./translate.js";
 
 export type WorkerRunOnceOptions = LocalQueueOptions &
   Pick<DryRunWorkspaceOptions, "outputRoot" | "now"> & {
@@ -64,6 +66,95 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPostgresQueryClient(value: unknown): value is PostgresQueryClient {
+  return isRecord(value) && typeof value.query === "function";
+}
+
+function adapterHasClient(
+  adapter: WorkerQueueAdapter,
+): adapter is WorkerQueueAdapter & { client: PostgresQueryClient } {
+  return "client" in adapter && isPostgresQueryClient(adapter.client);
+}
+
+function getPostgresClient(
+  adapter: WorkerQueueAdapter,
+  options: WorkerRunOnceOptions,
+): PostgresQueryClient | null {
+  if (options.postgresClient) return options.postgresClient;
+  if (options.queueAdapter && adapterHasClient(options.queueAdapter))
+    return options.queueAdapter.client;
+  if (adapterHasClient(adapter)) return adapter.client;
+  return null;
+}
+
+function getString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function getPositiveNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function getBrief(payload: Record<string, unknown>): string | undefined {
+  if (typeof payload.angle === "string") return payload.angle;
+  if (isRecord(payload.evidencePackage) && typeof payload.evidencePackage.brief === "string") {
+    return payload.evidencePackage.brief;
+  }
+  return undefined;
+}
+
+function getTargetDurationSeconds(payload: Record<string, unknown>): number | undefined {
+  const topLevel = getPositiveNumber(payload.targetDurationSeconds);
+  if (topLevel !== undefined) return topLevel;
+
+  const shorthand = getPositiveNumber(payload.targetDuration);
+  if (shorthand !== undefined) return shorthand;
+
+  if (isRecord(payload.evidencePackage)) {
+    const nested = getPositiveNumber(payload.evidencePackage.targetDurationSeconds);
+    if (nested !== undefined) return nested;
+  }
+
+  return undefined;
+}
+
+function looksLikeCompleteRenderSpec(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.scenes) &&
+    "fps" in value &&
+    "format" in value &&
+    "totalFrames" in value
+  );
+}
+
+function resolveRenderSpecPayload(payload: Record<string, unknown>): RenderSpec | null {
+  if (looksLikeCompleteRenderSpec(payload)) {
+    return validateRenderSpecOrThrow(payload);
+  }
+
+  if (looksLikeCompleteRenderSpec(payload.renderSpec)) {
+    return validateRenderSpecOrThrow(payload.renderSpec);
+  }
+
+  return null;
+}
+
 function resolveQueueAdapter(options: WorkerRunOnceOptions): {
   adapter: WorkerQueueAdapter;
   shouldClose: boolean;
@@ -110,56 +201,71 @@ async function runWorkerOnceWithAdapter(
   await adapter.markRunning(claim);
 
   try {
-    const payload = claim.task.payload as any;
+    const payload = claim.task.payload;
+    let renderSpec = resolveRenderSpecPayload(payload);
     // AI-Driven Directing Phase
-    // If the payload doesn't look like a RenderSpec (missing scenes), we need to direct it.
-    if (!Array.isArray(payload.scenes)) {
-      console.log(`[Worker] Task ${claim.task.id} requires AI directing...`);
+    // If the payload is only project/version metadata, use the director when a DB client is available.
+    if (!renderSpec) {
+      const pool = getPostgresClient(adapter, options);
+      if (pool) {
+        console.log(`[Worker] Task ${claim.task.id} requires AI directing...`);
 
-      const pool = options.postgresClient || (options.queueAdapter as any)?.client;
-      if (!pool) throw new Error("No database client available for AI-driven tasks");
+        const projectId = getString(payload.projectId);
+        const versionId = getString(payload.versionId);
+        const intents = await fetchProjectIntents(pool, projectId);
+        const assets = await fetchProjectAssets(pool, projectId);
 
-      const intents = await fetchProjectIntents(pool, payload.projectId);
-      const assets = await fetchProjectAssets(pool, payload.projectId);
+        const hasKimiKey = Boolean(options.env?.KIMI_API_KEY || process.env.KIMI_API_KEY);
+        const aiApiKey =
+          options.env?.KIMI_API_KEY ||
+          process.env.KIMI_API_KEY ||
+          options.env?.OPENAI_API_KEY ||
+          process.env.OPENAI_API_KEY;
 
-      const aiApiKey =
-        options.env?.OPENAI_API_KEY ||
-        process.env.OPENAI_API_KEY ||
-        options.env?.KIMI_API_KEY ||
-        process.env.KIMI_API_KEY;
-      if (!aiApiKey)
-        throw new Error("AI API Key (OPENAI_API_KEY or KIMI_API_KEY) is required for directing");
+        const aiModel = hasKimiKey
+          ? options.env?.KIMI_MODEL || process.env.KIMI_MODEL || "moonshot-v1-8k-vision-preview"
+          : options.env?.OPENAI_MODEL || process.env.OPENAI_MODEL || "gpt-4o";
 
-      const director = new CinematicDirector({
-        apiKey: aiApiKey,
-        model: options.env?.DIRECTOR_MODEL || process.env.DIRECTOR_MODEL || "gpt-4o",
-        endpoint:
-          options.env?.AI_ENDPOINT ||
-          process.env.AI_ENDPOINT ||
-          "https://api.openai.com/v1/chat/completions",
-      });
+        const aiEndpoint = hasKimiKey
+          ? options.env?.KIMI_ENDPOINT ||
+            process.env.KIMI_ENDPOINT ||
+            "https://api.moonshot.cn/v1/chat/completions"
+          : options.env?.OPENAI_ENDPOINT ||
+            process.env.OPENAI_ENDPOINT ||
+            "https://api.openai.com/v1/chat/completions";
 
-      const generatedSpec = await director.direct({
-        sourceUrl: payload.sourceUrl,
-        templateId: payload.templateId,
-        projectId: payload.projectId,
-        brief: payload.angle || (payload.evidencePackage?.brief as string),
-        intents,
-        assets,
-      });
+        const director = new CinematicDirector({
+          apiKey: aiApiKey || "",
+          model: aiModel,
+          endpoint: aiEndpoint,
+        });
 
-      console.log(
-        `[Worker] AI directing completed for ${claim.task.id}. Scenes: ${generatedSpec.scenes.length}`,
-      );
+        const generatedSpec = await director.direct({
+          sourceUrl: getString(payload.sourceUrl),
+          templateId: getString(payload.templateId),
+          projectId,
+          brief: getBrief(payload),
+          targetDurationSeconds: getTargetDurationSeconds(payload),
+          intents,
+          assets,
+        });
+        renderSpec = validateRenderSpecOrThrow(generatedSpec);
 
-      // Update video_version with the generated spec
-      await pool.query(
-        "UPDATE video_version SET render_spec = $1, updated_at = NOW() WHERE id = $2",
-        [JSON.stringify(generatedSpec), payload.versionId],
-      );
+        console.log(
+          `[Worker] AI directing completed for ${claim.task.id}. Scenes: ${renderSpec.scenes.length}`,
+        );
 
-      // Inject generated spec back into task for materialization
-      claim.task.payload = generatedSpec as any;
+        await pool.query(
+          "UPDATE video_version SET render_spec = $1, updated_at = NOW() WHERE id = $2",
+          [JSON.stringify(renderSpec), versionId],
+        );
+
+        claim.task.payload = { ...renderSpec };
+      } else {
+        console.log(
+          `[Worker] Task ${claim.task.id} has no complete RenderSpec; running local dry-run materialization.`,
+        );
+      }
     }
 
     const dryRunResult = await materializeDryRunWorkspace(claim.task, {
@@ -172,9 +278,8 @@ async function runWorkerOnceWithAdapter(
       options.outputRoot ?? join(process.cwd(), ".tmp", "saasreels-worker"),
       "cache",
     );
-    const spec = claim.task.payload as unknown as RenderSpec;
-    if (spec.assets) {
-      await prepareWorkspaceAssets(spec.assets, dryRunResult.workspaceDir, cacheDir);
+    if (renderSpec?.assets) {
+      await prepareWorkspaceAssets(renderSpec.assets, dryRunResult.workspaceDir, cacheDir);
     }
 
     const projectDir = resolve(dryRunResult.workspaceDir);
@@ -182,19 +287,26 @@ async function runWorkerOnceWithAdapter(
     const outputPath = resolve(join(projectDir, outputFileName));
 
     const renderJob = createRenderJob({
-      input: join(projectDir, "index.html"),
-      output: outputPath,
-      width: 1920,
-      height: 1080,
       fps: 30,
+      quality: "draft",
+      workers: 1,
+      entryFile: "index.html",
     });
 
     await executeRenderJob(renderJob, projectDir, outputPath);
 
     // Optional R2 Upload
     let videoUrl = outputPath;
-    const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_PUBLIC_DOMAIN } =
-      options.env ?? process.env;
+    const R2_ACCOUNT_ID = options.env?.R2_ACCOUNT_ID || process.env.R2_ACCOUNT_ID;
+    const R2_ACCESS_KEY_ID =
+      options.env?.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY;
+    const R2_SECRET_ACCESS_KEY =
+      options.env?.R2_SECRET_ACCESS_KEY ||
+      process.env.R2_SECRET_ACCESS_KEY ||
+      process.env.R2_SECRET_KEY;
+    const R2_BUCKET = options.env?.R2_BUCKET || process.env.R2_BUCKET || process.env.R2_BUCKET_NAME;
+    const R2_PUBLIC_DOMAIN =
+      options.env?.R2_PUBLIC_DOMAIN || process.env.R2_PUBLIC_DOMAIN || process.env.R2_DOMAIN;
 
     if (R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET) {
       try {
@@ -222,11 +334,11 @@ async function runWorkerOnceWithAdapter(
     });
 
     // Update video_version to DRAFT/COMPLETED and set the preview URL
-    const pool = options.postgresClient || (options.queueAdapter as any)?.client;
+    const pool = getPostgresClient(adapter, options);
     if (pool) {
       await pool.query(
-        "UPDATE video_version SET status = 'draft', updated_at = NOW() WHERE id = $1",
-        [payload.versionId],
+        "UPDATE video_version SET status = 'draft', exported_url = $2, updated_at = NOW() WHERE id = $1",
+        [getString(payload.versionId), videoUrl],
       );
     }
 

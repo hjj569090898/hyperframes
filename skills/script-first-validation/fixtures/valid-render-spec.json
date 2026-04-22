@@ -1,0 +1,55 @@
+{
+  "fps": 30,
+  "format": "16:9",
+  "totalFrames": 360,
+  "scenes": [
+    {
+      "component": "HeroContent",
+      "mediaElementId": "hero",
+      "durationFrames": 90,
+      "text": {
+        "content": "Turn product pages into launch videos",
+        "style": "headline",
+        "position": "center"
+      },
+      "params": {
+        "bgGlowColor": "#050505"
+      }
+    },
+    {
+      "component": "GenerativeDemo",
+      "mediaElementId": "feature",
+      "durationFrames": 120,
+      "text": {
+        "content": "Show the workflow, not just the promise",
+        "style": "subhead",
+        "position": "bottom"
+      },
+      "params": {
+        "bgGlowColor": "#101820"
+      }
+    },
+    {
+      "component": "UnifiedCTA",
+      "mediaElementId": "hero",
+      "durationFrames": 150,
+      "text": {
+        "content": "Create your campaign today",
+        "style": "headline",
+        "position": "center"
+      },
+      "params": {
+        "bgGlowColor": "#000000"
+      }
+    }
+  ],
+  "assets": {
+    "hero": "https://cdn.example.com/hero.png",
+    "feature": "https://cdn.example.com/feature.png",
+    "bgm": "https://cdn.example.com/bgm.mp3"
+  },
+  "globalAssets": {
+    "bgmId": "bgm",
+    "bgmVolume": 0.45
+  }
+}

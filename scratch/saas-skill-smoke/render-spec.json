@@ -1,0 +1,83 @@
+{
+  "fps": 30,
+  "format": "16:9",
+  "totalFrames": 450,
+  "scenes": [
+    {
+      "component": "HeroContent",
+      "mediaElementId": "showcase",
+      "durationFrames": 90,
+      "text": {
+        "content": "还在手动把落地页变成视频？",
+        "style": "headline",
+        "position": "center"
+      },
+      "params": {
+        "bgGlowColor": "#050505",
+        "transition": "scale_up"
+      }
+    },
+    {
+      "component": "GenerativeDemo",
+      "mediaElementId": "feature",
+      "durationFrames": 90,
+      "text": {
+        "content": "脚本、截图、动效、校验，全链路都在同一个流程里。",
+        "style": "subhead",
+        "position": "bottom"
+      },
+      "params": {
+        "bgGlowColor": "#101828",
+        "transition": "slide_left"
+      }
+    },
+    {
+      "component": "FocusShot",
+      "mediaElementId": "cases",
+      "durationFrames": 90,
+      "text": {
+        "content": "输入产品信息，直接生成可渲染 RenderSpec。",
+        "style": "subhead",
+        "position": "center"
+      },
+      "params": {
+        "bgGlowColor": "#0f172a",
+        "transition": "flip_center"
+      }
+    },
+    {
+      "component": "SocialProof",
+      "mediaElementId": "pricing",
+      "durationFrames": 90,
+      "text": {
+        "content": "先校验结构，再进入渲染，减少返工。",
+        "style": "subhead",
+        "position": "center"
+      },
+      "params": {
+        "bgGlowColor": "#111827",
+        "transition": "scale_up"
+      }
+    },
+    {
+      "component": "UnifiedCTA",
+      "mediaElementId": "showcase",
+      "durationFrames": 90,
+      "text": {
+        "content": "现在就测试你的前端视频生成",
+        "style": "headline",
+        "position": "center"
+      },
+      "params": {
+        "bgGlowColor": "#000000",
+        "transition": "scale_up"
+      }
+    }
+  ],
+  "assets": {
+    "showcase": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/assets/v7fjdRao_jeJKdQFhjs6i_ineedprompt/showcases.png",
+    "feature": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/assets/v7fjdRao_jeJKdQFhjs6i_ineedprompt/功能区域.png",
+    "cases": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/assets/v7fjdRao_jeJKdQFhjs6i_ineedprompt/案例区域.png",
+    "pricing": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/assets/v7fjdRao_jeJKdQFhjs6i_ineedprompt/price.png"
+  }
+}

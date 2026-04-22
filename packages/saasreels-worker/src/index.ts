@@ -41,6 +41,7 @@ export {
 export {
   createPostgresQueueAdapter,
   type CreatePostgresQueueAdapterOptions,
+  type PostgresQueueAdapter,
   type PostgresQueryClient,
   type PostgresWorkerTaskRow,
 } from "./postgresQueue.js";
@@ -53,4 +54,12 @@ export {
   type WorkerRunOnceOptions,
   type WorkerRunOnceResult,
 } from "./runner.js";
+export {
+  parseRenderSpecCandidate,
+  validateRenderSpec,
+  validateRenderSpecOrThrow,
+  type ParseRenderSpecCandidateOptions,
+  type ParseRenderSpecCandidateResult,
+  type RenderSpecValidationReport,
+} from "./renderSpecValidation.js";
 export { translateRenderSpecToHtml, type RenderSpec, type RenderScene } from "./translate.js";

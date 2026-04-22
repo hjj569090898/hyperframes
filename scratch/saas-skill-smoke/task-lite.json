@@ -1,0 +1,61 @@
+{
+  "id": "skill_smoke_20260421_002",
+  "kind": "export_video",
+  "payload": {
+    "versionId": "skill_smoke_v2",
+    "renderSpec": {
+      "fps": 30,
+      "format": "16:9",
+      "totalFrames": 225,
+      "scenes": [
+        {
+          "component": "HeroContent",
+          "mediaElementId": "showcase",
+          "durationFrames": 75,
+          "text": {
+            "content": "Still turning product pages into videos by hand?",
+            "style": "headline",
+            "position": "center"
+          },
+          "params": {
+            "bgGlowColor": "#050505",
+            "transition": "scale_up"
+          }
+        },
+        {
+          "component": "GenerativeDemo",
+          "mediaElementId": "feature",
+          "durationFrames": 75,
+          "text": {
+            "content": "One brief. One RenderSpec. One render-ready workflow.",
+            "style": "subhead",
+            "position": "bottom"
+          },
+          "params": {
+            "bgGlowColor": "#101828",
+            "transition": "slide_left"
+          }
+        },
+        {
+          "component": "UnifiedCTA",
+          "mediaElementId": "pricing",
+          "durationFrames": 75,
+          "text": {
+            "content": "Test your next front-end launch video",
+            "style": "headline",
+            "position": "center"
+          },
+          "params": {
+            "bgGlowColor": "#000000",
+            "transition": "scale_up"
+          }
+        }
+      ],
+      "assets": {
+        "showcase": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/assets/v7fjdRao_jeJKdQFhjs6i_ineedprompt/showcases.png",
+        "feature": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/assets/v7fjdRao_jeJKdQFhjs6i_ineedprompt/功能区域.png",
+        "pricing": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/assets/v7fjdRao_jeJKdQFhjs6i_ineedprompt/price.png"
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Script First Validation"
+  short_description: "Validate RenderSpecs before rendering or enqueueing"
+  default_prompt: "Validate a SaaSReels RenderSpec before render, enqueue, or worker execution."

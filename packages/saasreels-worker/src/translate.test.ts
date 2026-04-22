@@ -43,6 +43,7 @@ test("translateRenderSpecToHtml should generate valid HyperFrames HTML architect
   // Structural checks
   assert.ok(html.includes('<div id="root"'), "Should contain root div");
   assert.ok(html.includes('data-composition-id="main"'), "Should contain main composition ID");
+  assert.ok(html.includes('data-start="0"'), "Should set root composition start to 0");
   assert.ok(html.includes('data-duration="2"'), "Should have correct total duration (2s)");
 
   // Scene content checks

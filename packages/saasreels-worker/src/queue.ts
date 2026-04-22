@@ -11,8 +11,12 @@ export const WORKER_QUEUE_BACKENDS = ["local", "postgres"] as const;
 export type WorkerQueueBackend = (typeof WORKER_QUEUE_BACKENDS)[number];
 
 export type WorkerExecutionResult = Record<string, unknown>;
-export type WorkerQueueCompleteResult = Record<string, unknown>;
-export type WorkerQueueFailureResult = Record<string, unknown>;
+export type WorkerQueueCompleteResult = Record<string, unknown> & {
+  resultPath?: string;
+};
+export type WorkerQueueFailureResult = Record<string, unknown> & {
+  errorPath?: string;
+};
 
 export interface WorkerQueueClaim<T = unknown> {
   task: SaasReelsWorkerTask;

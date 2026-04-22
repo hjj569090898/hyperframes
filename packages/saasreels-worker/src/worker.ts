@@ -1,5 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { validateRenderSpecOrThrow } from "./renderSpecValidation.js";
 import { translateRenderSpecToHtml, type RenderSpec } from "./translate.js";
 
 export const SAASREELS_WORKER_TASK_KINDS = ["generate_video", "export_video"] as const;
@@ -39,6 +41,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function looksLikeCompleteRenderSpec(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.scenes) &&
+    "fps" in value &&
+    "format" in value &&
+    "totalFrames" in value
+  );
+}
+
+function defaultDryRunRenderSpec(): RenderSpec {
+  return {
+    fps: 30,
+    format: "16:9",
+    totalFrames: 30,
+    scenes: [],
+  };
+}
+
+function resolveRenderSpecForMaterialization(payload: Record<string, unknown>): RenderSpec {
+  if (looksLikeCompleteRenderSpec(payload)) {
+    return validateRenderSpecOrThrow(payload);
+  }
+
+  const nestedRenderSpec = payload.renderSpec;
+  if (looksLikeCompleteRenderSpec(nestedRenderSpec)) {
+    return validateRenderSpecOrThrow(nestedRenderSpec);
+  }
+
+  return defaultDryRunRenderSpec();
+}
+
 function requireString(value: unknown, fieldName: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`Missing required string field: ${fieldName}`);
@@ -63,6 +97,24 @@ function validatePayload(kind: SaasReelsWorkerTaskKind, payload: Record<string, 
 export function sanitizeTaskId(taskId: string): string {
   const sanitized = taskId.replace(/[^a-zA-Z0-9_.-]/g, "_");
   return sanitized || "task";
+}
+
+async function copyBundledGsap(workspaceDir: string): Promise<void> {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const packageDir = resolve(moduleDir, "..");
+  const candidates = [join(packageDir, "gsap.min.js"), join(packageDir, "assets", "gsap.js")];
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      await copyFile(candidate, join(workspaceDir, "gsap.js"));
+      return;
+    } catch {
+      // Try the next bundled candidate.
+    }
+  }
+
+  throw new Error(`Unable to find bundled gsap.js in ${packageDir}`);
 }
 
 export function normalizeWorkerTask(input: unknown): SaasReelsWorkerTask {
@@ -108,6 +160,12 @@ export async function materializeDryRunWorkspace(
 
   await mkdir(workspaceDir, { recursive: true });
 
+  try {
+    await copyBundledGsap(workspaceDir);
+  } catch (error) {
+    console.warn("[Materializer] Failed to copy gsap.js to workspace:", error);
+  }
+
   const manifest = {
     schemaVersion: "saasreels-worker.dry-run.v1",
     taskId: task.id,
@@ -123,8 +181,8 @@ export async function materializeDryRunWorkspace(
   const manifestPath = join(workspaceDir, "manifest.json");
   const indexPath = join(workspaceDir, "index.html");
 
-  // Perform translation
-  const html = translateRenderSpecToHtml(task.payload as unknown as RenderSpec);
+  const renderSpec = resolveRenderSpecForMaterialization(task.payload);
+  const html = translateRenderSpecToHtml(renderSpec);
 
   await writeFile(taskPath, JSON.stringify(task, null, 2) + "\n", "utf8");
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");

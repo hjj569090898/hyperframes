@@ -47,6 +47,10 @@ type PostgresQueueClaimState = {
   taskId: string;
 };
 
+export type PostgresQueueAdapter = WorkerQueueAdapter<PostgresQueueClaimState> & {
+  client: PostgresQueryClient;
+};
+
 function stripUtf8Bom(raw: string): string {
   return raw.replace(/^\uFEFF/, "");
 }
@@ -89,7 +93,7 @@ function toQueueClaim(
 
 export function createPostgresQueueAdapter(
   options: CreatePostgresQueueAdapterOptions = {},
-): WorkerQueueAdapter<PostgresQueueClaimState> {
+): PostgresQueueAdapter {
   const now = options.now ?? (() => new Date());
   const workerId = resolveWorkerId(options);
   const leaseDurationMs = options.leaseDurationMs ?? 5 * 60 * 1000;
@@ -102,6 +106,7 @@ export function createPostgresQueueAdapter(
 
   return {
     name: "postgres",
+    client,
     async claimNext() {
       const claimedAt = now();
       const leaseUntil = new Date(claimedAt.getTime() + leaseDurationMs);

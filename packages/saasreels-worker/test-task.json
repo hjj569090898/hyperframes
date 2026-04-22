@@ -1,0 +1,53 @@
+{
+  "id": "local-task-ineedprompt",
+  "kind": "generate_video",
+  "status": "queued",
+  "payload": {
+    "fps": 30,
+    "format": "16:9",
+    "totalFrames": 300,
+    "scenes": [
+      {
+        "durationFrames": 90,
+        "component": "HeroContent",
+        "mediaElementId": "hero_bg",
+        "params": { "bgGlowColor": "rgba(0, 0, 50, 0.5)" },
+        "text": {
+          "content": "THINK IN CONCEPTS.\nTAB INTO RESULTS.",
+          "position": "center",
+          "style": "headline"
+        }
+      },
+      {
+        "durationFrames": 120,
+        "component": "GenerativeDemo",
+        "mediaElementId": "dashboard",
+        "params": {},
+        "text": {
+          "content": "DUAL MODES: SUPPLEMENT & GENERATE\nSmart Autocomplete for Pro Prompts.",
+          "position": "bottom",
+          "style": "subhead"
+        }
+      },
+      {
+        "durationFrames": 90,
+        "component": "HeroContent",
+        "mediaElementId": "hero_bg",
+        "params": {},
+        "text": {
+          "content": "STOP WRITING PROMPTS.\nSTART DESIGNING THEM.",
+          "position": "center",
+          "style": "headline"
+        }
+      }
+    ],
+    "assets": {
+      "hero_bg": "file:///C:/Users/801611/.gemini/antigravity/brain/3dc10894-7a92-4733-943a-8c6b3e2a3cb2/ineedprompt_hero_bg_1776667648547.png",
+      "dashboard": "file:///C:/Users/801611/.gemini/antigravity/brain/3dc10894-7a92-4733-943a-8c6b3e2a3cb2/ineedprompt_dashboard_mockup_1776667669810.png",
+      "gsap": "file:///D:/toTheSea/hyperframes/packages/saasreels-worker/gsap.min.js"
+    },
+    "projectId": "local-proj",
+    "versionId": "local-ver",
+    "sourceUrl": "https://www.ineed-prompt.com/"
+  }
+}

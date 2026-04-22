@@ -1,0 +1,49 @@
+{
+  "id": "mvp_test_task_audio_004",
+  "kind": "generate_video",
+  "status": "queued",
+  "payload": {
+    "projectId": "p_mvp_demo",
+    "versionId": "v_mvp_audio_v4",
+    "fps": 30,
+    "format": "16:9",
+    "totalFrames": 90,
+    "globalAssets": {
+      "bgmId": "bgm_track",
+      "bgmVolume": 0.8
+    },
+    "assets": {
+      "asset_dashboard": "https://picsum.photos/id/20/1920/1080.jpg",
+      "asset_feature": "https://picsum.photos/id/26/1920/1080.jpg",
+      "bgm_track": "https://www.w3schools.com/html/horse.mp3"
+    },
+    "scenes": [
+      {
+        "durationFrames": 45,
+        "component": "GenerativeDemo",
+        "mediaElementId": "asset_dashboard",
+        "params": {
+          "bgGlowColor": "#1a1a4a"
+        },
+        "text": {
+          "content": "BGM Metadata Fixed!",
+          "position": "center",
+          "style": "headline"
+        }
+      },
+      {
+        "durationFrames": 45,
+        "component": "FocusShot",
+        "mediaElementId": "asset_feature",
+        "params": {
+          "bgGlowColor": "#1a4a1a"
+        },
+        "text": {
+          "content": "Audio Muxing Engaged",
+          "position": "bottom",
+          "style": "subhead"
+        }
+      }
+    ]
+  }
+}

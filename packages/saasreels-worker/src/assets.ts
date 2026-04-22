@@ -4,6 +4,8 @@ import crypto from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 
+import { renderAssetFileName } from "./translate.js";
+
 /**
  * Downloads a URL if not in cache (uses sha256 of URL as filename).
  */
@@ -48,12 +50,18 @@ export async function prepareWorkspaceAssets(
 ): Promise<void> {
   if (!assetMap || Object.keys(assetMap).length === 0) return;
 
+  const assetsDir = path.join(workspaceDir, "assets");
+  await fs.mkdir(assetsDir, { recursive: true });
+
   const tasks = Object.entries(assetMap).map(async ([mediaElementId, url]) => {
     const cachedPath = await ensureAsset(url, cacheDir);
     const extension = path.extname(cachedPath);
-    const targetPath = path.join(workspaceDir, `${mediaElementId}${extension}`);
+    const fileName = renderAssetFileName(mediaElementId, url);
+    const targetPath = path.join(
+      assetsDir,
+      extension && !path.extname(fileName) ? `${fileName}${extension}` : fileName,
+    );
 
-    // Copy to workspace root for maximum compatibility
     await fs.copyFile(cachedPath, targetPath);
   });
 

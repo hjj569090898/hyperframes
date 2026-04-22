@@ -1,0 +1,28 @@
+Here is the RenderSpec:
+
+```json
+{
+  "fps": 30,
+  "format": "16:9",
+  "totalFrames": 90,
+  "scenes": [
+    {
+      "component": "HeroContent",
+      "mediaElementId": "hero",
+      "durationFrames": 90,
+      "text": {
+        "content": "Markdown wrappers must not pass strict validation",
+        "style": "headline",
+        "position": "center"
+      },
+      "params": {
+        "bgGlowColor": "#000000"
+      }
+    }
+  ],
+  "assets": {
+    "hero": "https://cdn.example.com/hero.png"
+  }
+}
+```
+

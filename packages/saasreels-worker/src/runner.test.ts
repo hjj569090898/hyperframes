@@ -175,3 +175,94 @@ test("runWorkerOnce can execute against an injected queue adapter", async () => 
     await rm(outputRoot, { recursive: true, force: true });
   }
 });
+
+test("runWorkerOnce writes exported_url back to video_version when using a postgres client", async () => {
+  const outputRoot = await mkdtemp(join(tmpdir(), "saasreels-worker-postgres-output-"));
+  try {
+    const queries: Array<{ sql: string; values?: readonly unknown[] }> = [];
+    let completedVideoUrl = "";
+
+    const adapter: WorkerQueueAdapter = {
+      name: "fake-postgres",
+      async claimNext() {
+        return {
+          workerId: "worker_postgres_test",
+          claim: { source: "fake-postgres" },
+          task: {
+            id: "task_postgres_001",
+            kind: "generate_video",
+            status: "claimed",
+            payload: {
+              projectId: "project_postgres",
+              versionId: "version_postgres",
+              fps: 30,
+              format: "16:9",
+              totalFrames: 30,
+              scenes: [
+                {
+                  component: "HeroContent",
+                  mediaElementId: "",
+                  durationFrames: 30,
+                  text: {
+                    content: "Integration test render",
+                    style: "headline",
+                    position: "center",
+                  },
+                  params: {},
+                },
+              ],
+            },
+          },
+        };
+      },
+      async markRunning() {},
+      async complete(_claim, result) {
+        completedVideoUrl = result.videoUrl ?? "";
+        return {
+          resultPath: join(result.workspaceDir, "fake-postgres.result.json"),
+        };
+      },
+      async fail() {
+        assert.fail("fail should not be called");
+      },
+    };
+
+    const postgresClient = {
+      async query(sql: string, values?: readonly unknown[]) {
+        queries.push({ sql, values });
+
+        if (sql.includes("FROM project_generation_intents")) {
+          return {
+            rows: [
+              {
+                slogan: "Turn one URL into a product video",
+                must_include_points: null,
+                preferred_asset_ids: null,
+              },
+            ],
+          };
+        }
+
+        return {
+          rows: [],
+        };
+      },
+    };
+
+    const result = await runWorkerOnce({
+      queueAdapter: adapter,
+      postgresClient,
+      outputRoot,
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.ok(completedVideoUrl.length > 0);
+
+    const exportedUrlUpdate = queries.find(({ sql }) => sql.includes("exported_url"));
+    assert.ok(exportedUrlUpdate, "expected video_version exported_url to be updated");
+    assert.equal(exportedUrlUpdate?.values?.[1], completedVideoUrl);
+    assert.equal(exportedUrlUpdate?.values?.[0], "version_postgres");
+  } finally {
+    await rm(outputRoot, { recursive: true, force: true });
+  }
+});

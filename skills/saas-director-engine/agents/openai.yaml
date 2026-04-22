@@ -1,0 +1,4 @@
+interface:
+  display_name: "SaaS Director Engine"
+  short_description: "Create high-converting SaaS video RenderSpecs"
+  default_prompt: "Use SaaS director guidance to produce a marketing-focused RenderSpec."
