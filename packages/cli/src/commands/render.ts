@@ -25,6 +25,7 @@ import { trackRenderComplete, trackRenderError } from "../telemetry/events.js";
 import { bytesToMb } from "../telemetry/system.js";
 import { VERSION } from "../version.js";
 import { isDevMode } from "../utils/env.js";
+import { buildDockerRunArgs } from "../utils/dockerRunArgs.js";
 import type { RenderJob } from "@hyperframes/producer";
 
 const VALID_FPS = new Set([24, 30, 60]);
@@ -52,15 +53,18 @@ export default defineCommand({
     },
     output: {
       type: "string",
+      alias: "o",
       description: "Output path (default: renders/<name>.mp4)",
     },
     fps: {
       type: "string",
+      alias: "f",
       description: "Frame rate: 24, 30, 60",
       default: "30",
     },
     quality: {
       type: "string",
+      alias: "q",
       description: "Quality: draft, standard, high",
       default: "standard",
     },
@@ -71,6 +75,7 @@ export default defineCommand({
     },
     workers: {
       type: "string",
+      alias: "w",
       description:
         "Parallel render workers (number or 'auto'). Default: auto. " +
         "Each worker launches a separate Chrome process (~256 MB RAM).",
@@ -84,6 +89,14 @@ export default defineCommand({
       type: "boolean",
       description: "Enable HDR: probe sources for PQ/HLG, output H.265 10-bit BT.2020",
       default: false,
+    },
+    crf: {
+      type: "string",
+      description: "Override encoder CRF. Mutually exclusive with --video-bitrate.",
+    },
+    "video-bitrate": {
+      type: "string",
+      description: "Target video bitrate such as 10M. Mutually exclusive with --crf.",
     },
     gpu: { type: "boolean", description: "Use GPU encoding", default: false },
     quiet: {
@@ -176,6 +189,31 @@ export default defineCommand({
     const quiet = args.quiet ?? false;
     const strictAll = args["strict-all"] ?? false;
     const strictErrors = (args.strict ?? false) || strictAll;
+    const crfRaw = args.crf;
+    const videoBitrate = args["video-bitrate"]?.trim();
+
+    if (crfRaw != null && videoBitrate) {
+      errorBox("Conflicting encoder settings", "Use either --crf or --video-bitrate, not both.");
+      process.exit(1);
+    }
+
+    let crf: number | undefined;
+    if (crfRaw != null) {
+      const parsed = Number(crfRaw);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        errorBox("Invalid crf", `Got "${crfRaw}". Must be a non-negative integer.`);
+        process.exit(1);
+      }
+      crf = parsed;
+    }
+
+    if (args["video-bitrate"] != null && !videoBitrate) {
+      errorBox(
+        "Invalid video-bitrate",
+        `Got "${args["video-bitrate"]}". Must be a non-empty bitrate such as "10M".`,
+      );
+      process.exit(1);
+    }
 
     // ── Print render plan ─────────────────────────────────────────────────
     const workerCount = workers ?? defaultWorkerCount();
@@ -272,6 +310,8 @@ export default defineCommand({
         workers: workerCount,
         gpu: useGpu,
         hdr: args.hdr ?? false,
+        crf,
+        videoBitrate,
         quiet,
       });
     } else {
@@ -282,6 +322,8 @@ export default defineCommand({
         workers: workerCount,
         gpu: useGpu,
         hdr: args.hdr ?? false,
+        crf,
+        videoBitrate,
         quiet,
         browserPath,
       });
@@ -296,6 +338,8 @@ interface RenderOptions {
   workers: number;
   gpu: boolean;
   hdr: boolean;
+  crf?: number;
+  videoBitrate?: string;
   quiet: boolean;
   browserPath?: string;
 }
@@ -406,33 +450,23 @@ async function renderDocker(
 
   const outputDir = dirname(outputPath);
   const outputFilename = basename(outputPath);
-  const dockerArgs = [
-    "run",
-    "--rm",
-    "--platform",
-    "linux/amd64",
-    "--shm-size=2g",
-    // GPU encoding requires host GPU passthrough
-    ...(options.gpu ? ["--gpus", "all"] : []),
-    "-v",
-    `${resolve(projectDir)}:/project:ro`,
-    "-v",
-    `${resolve(outputDir)}:/output`,
+  const dockerArgs = buildDockerRunArgs({
     imageTag,
-    "/project",
-    "--output",
-    `/output/${outputFilename}`,
-    "--fps",
-    String(options.fps),
-    "--quality",
-    options.quality,
-    "--format",
-    options.format,
-    "--workers",
-    String(options.workers),
-    ...(options.quiet ? ["--quiet"] : []),
-    ...(options.gpu ? ["--gpu"] : []),
-  ];
+    projectDir: resolve(projectDir),
+    outputDir: resolve(outputDir),
+    outputFilename,
+    options: {
+      fps: options.fps,
+      quality: options.quality,
+      format: options.format,
+      workers: options.workers,
+      gpu: options.gpu,
+      hdr: options.hdr,
+      crf: options.crf,
+      videoBitrate: options.videoBitrate,
+      quiet: options.quiet,
+    },
+  });
 
   if (!options.quiet) {
     console.log(c.dim("  Running render in Docker container..."));
@@ -494,6 +528,8 @@ async function renderLocal(
     workers: options.workers,
     useGpu: options.gpu,
     hdr: options.hdr,
+    crf: options.crf,
+    videoBitrate: options.videoBitrate,
   });
 
   const onProgress = options.quiet

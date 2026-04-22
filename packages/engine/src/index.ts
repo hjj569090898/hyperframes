@@ -111,12 +111,14 @@ export {
 // ── Media processing ───────────────────────────────────────────────────────────
 export {
   parseVideoElements,
+  parseImageElements,
   extractVideoFramesRange,
   extractAllVideoFrames,
   getFrameAtTime,
   createFrameLookupTable,
   FrameLookupTable,
   type VideoElement,
+  type ImageElement,
   type ExtractedFrames,
   type ExtractionOptions,
   type ExtractionResult,
@@ -170,6 +172,9 @@ export {
   parseTransformMatrix,
   getSrgbToHdrLut,
   roundedRectAlpha,
+  resampleRgb48leObjectFit,
+  normalizeObjectFit,
+  type ObjectFit,
 } from "./utils/alphaBlit.js";
 
 export { groupIntoLayers, type CompositeLayer } from "./utils/layerCompositor.js";
@@ -209,8 +214,10 @@ export {
   detectTransfer,
   getHdrEncoderColorParams,
   analyzeCompositionHdr,
+  DEFAULT_HDR10_MASTERING,
   type HdrTransfer,
   type HdrEncoderColorParams,
   type CompositionHdrInfo,
+  type HdrMasteringMetadata,
 } from "./utils/hdr.js";
 export type { VideoColorSpace } from "./utils/ffprobe.js";
