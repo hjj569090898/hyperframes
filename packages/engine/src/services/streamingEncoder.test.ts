@@ -9,7 +9,11 @@
  * master-display / max-cll and ship as SDR BT.2020 again.
  */
 
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "events";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildStreamingArgs,
@@ -161,6 +165,64 @@ describe("buildStreamingArgs", () => {
       expect(args[args.length - 1]).toBe("/tmp/some-output.mp4");
     });
   });
+
+  describe("GPU preset mapping", () => {
+    const baseGpu: StreamingEncoderOptions = {
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      codec: "h264",
+      preset: "ultrafast",
+      quality: 28,
+      useGpu: true,
+    };
+
+    function presetArg(args: string[]): string | undefined {
+      const idx = args.indexOf("-preset");
+      return idx === -1 ? undefined : args[idx + 1];
+    }
+
+    // Regression for the streaming-encode + --gpu failure: NVENC rejects
+    // libx264 `ultrafast` with AVERROR(EINVAL), which previously surfaced
+    // as a bare "FFmpeg exited with code -22".
+    it("translates ultrafast to NVENC p1", () => {
+      const args = buildStreamingArgs(baseGpu, "/tmp/out.mp4", "nvenc");
+      expect(presetArg(args)).toBe("p1");
+    });
+
+    it("translates medium to NVENC p4", () => {
+      const args = buildStreamingArgs({ ...baseGpu, preset: "medium" }, "/tmp/out.mp4", "nvenc");
+      expect(presetArg(args)).toBe("p4");
+    });
+
+    // Same mapping applies to hevc_nvenc: NVENC's preset vocabulary is
+    // codec-agnostic, so the helper must translate for H.265 too.
+    it("translates libx264 preset names to NVENC pN for h265 as well", () => {
+      for (const [libx264, nvencPreset] of [
+        ["ultrafast", "p1"],
+        ["medium", "p4"],
+        ["veryslow", "p7"],
+      ] as const) {
+        const args = buildStreamingArgs(
+          { ...baseGpu, codec: "h265", preset: libx264 },
+          "/tmp/out.mp4",
+          "nvenc",
+        );
+        expect(args[args.indexOf("-c:v") + 1]).toBe("hevc_nvenc");
+        expect(presetArg(args)).toBe(nvencPreset);
+      }
+    });
+
+    it("rewrites QSV's unsupported ultrafast preset to veryfast", () => {
+      const args = buildStreamingArgs(baseGpu, "/tmp/out.mp4", "qsv");
+      expect(presetArg(args)).toBe("veryfast");
+    });
+
+    it("passes QSV-supported preset names through unchanged", () => {
+      const args = buildStreamingArgs({ ...baseGpu, preset: "medium" }, "/tmp/out.mp4", "qsv");
+      expect(presetArg(args)).toBe("medium");
+    });
+  });
 });
 
 describe("createFrameReorderBuffer", () => {
@@ -224,5 +286,247 @@ describe("createFrameReorderBuffer", () => {
     const buf = createFrameReorderBuffer(0, 3);
     buf.advanceTo(5);
     await buf.waitForAllDone();
+  });
+});
+
+interface FakeStdin extends EventEmitter {
+  destroyed: boolean;
+  end: (cb?: () => void) => void;
+  write: (chunk: Buffer) => boolean;
+}
+
+interface FakeProc extends EventEmitter {
+  stdin: FakeStdin;
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  kill: ReturnType<typeof vi.fn>;
+}
+
+interface SpawnCall {
+  command: string;
+  args: readonly string[];
+  proc: FakeProc;
+}
+
+function createFakeStdin(): FakeStdin {
+  const state = { destroyed: false };
+  const stdin = new EventEmitter() as FakeStdin;
+  Object.defineProperty(stdin, "destroyed", {
+    get: () => state.destroyed,
+    set: (v: boolean) => {
+      state.destroyed = v;
+    },
+  });
+  stdin.end = (cb?: () => void) => {
+    state.destroyed = true;
+    if (cb) process.nextTick(cb);
+  };
+  stdin.write = (_chunk: Buffer): boolean => !state.destroyed;
+  return stdin;
+}
+
+function createFakeProc(): FakeProc {
+  const proc = new EventEmitter() as FakeProc;
+  proc.stdin = createFakeStdin();
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.kill = vi.fn();
+  return proc;
+}
+
+function createSpawnSpy(): {
+  spawn: (command: string, args: readonly string[]) => FakeProc;
+  calls: SpawnCall[];
+} {
+  const calls: SpawnCall[] = [];
+  const spawn = (command: string, args: readonly string[]): FakeProc => {
+    const proc = createFakeProc();
+    calls.push({ command, args, proc });
+    return proc;
+  };
+  return { spawn, calls };
+}
+
+const baseOptions: StreamingEncoderOptions = {
+  fps: 30,
+  width: 100,
+  height: 100,
+  codec: "h264",
+  useGpu: false,
+};
+
+describe("spawnStreamingEncoder lifecycle and cleanup", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock("child_process");
+  });
+
+  it("returns a success result when ffmpeg exits cleanly after close()", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    vi.resetModules();
+    vi.doMock("child_process", () => ({ spawn }));
+
+    const { spawnStreamingEncoder } = await import("./streamingEncoder.js");
+    const dir = mkdtempSync(join(tmpdir(), "se-success-"));
+    const encoder = await spawnStreamingEncoder(join(dir, "out.mp4"), baseOptions);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toBe("ffmpeg");
+
+    const proc = calls[0]!.proc;
+    const closePromise = encoder.close();
+    process.nextTick(() => proc.emit("close", 0));
+
+    const result = await closePromise;
+    expect(result.success).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.fileSize).toBe(0); // No real ffmpeg, no file written
+  });
+
+  it("returns a failure result (does NOT throw) when ffmpeg exits non-zero before close()", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    vi.resetModules();
+    vi.doMock("child_process", () => ({ spawn }));
+
+    const { spawnStreamingEncoder } = await import("./streamingEncoder.js");
+    const dir = mkdtempSync(join(tmpdir(), "se-fail-"));
+    const encoder = await spawnStreamingEncoder(join(dir, "out.mp4"), baseOptions);
+
+    const proc = calls[0]!.proc;
+    proc.stderr.emit("data", Buffer.from("Encoder error\n"));
+    await new Promise<void>((resolve) => {
+      process.nextTick(() => {
+        proc.emit("close", 1);
+        resolve();
+      });
+    });
+
+    const result = await encoder.close();
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("FFmpeg exited with code 1");
+    expect(result.error).toContain("Encoder error");
+  });
+
+  it("returns a failure result (does NOT throw) when ffmpeg fails to spawn (ENOENT)", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    vi.resetModules();
+    vi.doMock("child_process", () => ({ spawn }));
+
+    const { spawnStreamingEncoder } = await import("./streamingEncoder.js");
+    const dir = mkdtempSync(join(tmpdir(), "se-enoent-"));
+    const encoder = await spawnStreamingEncoder(join(dir, "out.mp4"), baseOptions);
+
+    const proc = calls[0]!.proc;
+    await new Promise<void>((resolve) => {
+      process.nextTick(() => {
+        const err = new Error("spawn ffmpeg ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        proc.emit("error", err);
+        resolve();
+      });
+    });
+
+    const result = await encoder.close();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/spawn ffmpeg ENOENT/);
+  });
+
+  it("returns a 'cancelled' result and SIGTERMs ffmpeg when the abort signal fires", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    vi.resetModules();
+    vi.doMock("child_process", () => ({ spawn }));
+
+    const { spawnStreamingEncoder } = await import("./streamingEncoder.js");
+    const controller = new AbortController();
+    const dir = mkdtempSync(join(tmpdir(), "se-abort-"));
+    const encoder = await spawnStreamingEncoder(
+      join(dir, "out.mp4"),
+      baseOptions,
+      controller.signal,
+    );
+
+    const proc = calls[0]!.proc;
+    controller.abort();
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+
+    process.nextTick(() => proc.emit("close", null));
+    const result = await encoder.close();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Streaming encode cancelled");
+  });
+
+  it("close() is idempotent: a second call still resolves to a result and does not throw", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    vi.resetModules();
+    vi.doMock("child_process", () => ({ spawn }));
+
+    const { spawnStreamingEncoder } = await import("./streamingEncoder.js");
+    const dir = mkdtempSync(join(tmpdir(), "se-idempotent-"));
+    const encoder = await spawnStreamingEncoder(join(dir, "out.mp4"), baseOptions);
+
+    const proc = calls[0]!.proc;
+    process.nextTick(() => proc.emit("close", 0));
+
+    const first = await encoder.close();
+    expect(first.success).toBe(true);
+
+    // Defensive cleanup in renderOrchestrator may call close() again after the
+    // explicit call. Verify the second call doesn't reject — it can return
+    // either success (cached) or a benign failure result, but must not throw.
+    let threw = false;
+    try {
+      const second = await encoder.close();
+      expect(typeof second.success).toBe("boolean");
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(false);
+  });
+
+  it("writeFrame returns false after ffmpeg has exited", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    vi.resetModules();
+    vi.doMock("child_process", () => ({ spawn }));
+
+    const { spawnStreamingEncoder } = await import("./streamingEncoder.js");
+    const dir = mkdtempSync(join(tmpdir(), "se-writefail-"));
+    const encoder = await spawnStreamingEncoder(join(dir, "out.mp4"), baseOptions);
+
+    expect(encoder.writeFrame(Buffer.from([0]))).toBe(true);
+
+    const proc = calls[0]!.proc;
+    await new Promise<void>((resolve) => {
+      process.nextTick(() => {
+        proc.emit("close", 0);
+        resolve();
+      });
+    });
+
+    expect(encoder.writeFrame(Buffer.from([0]))).toBe(false);
+  });
+
+  it("close() removes the abort listener so a post-close abort does not re-kill ffmpeg", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    vi.resetModules();
+    vi.doMock("child_process", () => ({ spawn }));
+
+    const { spawnStreamingEncoder } = await import("./streamingEncoder.js");
+    const controller = new AbortController();
+    const dir = mkdtempSync(join(tmpdir(), "se-detach-"));
+    const encoder = await spawnStreamingEncoder(
+      join(dir, "out.mp4"),
+      baseOptions,
+      controller.signal,
+    );
+
+    const proc = calls[0]!.proc;
+    process.nextTick(() => proc.emit("close", 0));
+    await encoder.close();
+
+    expect(proc.kill).not.toHaveBeenCalled();
+
+    controller.abort();
+    expect(proc.kill).not.toHaveBeenCalled();
   });
 });

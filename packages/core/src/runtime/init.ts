@@ -16,6 +16,9 @@ import { applyCaptionOverrides } from "./captionOverrides";
 import type { RuntimeDeterministicAdapter, RuntimeJson, RuntimeTimelineLike } from "./types";
 import type { PlayerAPI } from "../core.types";
 
+const AUTHORED_DURATION_ATTR = "data-hf-authored-duration";
+const AUTHORED_END_ATTR = "data-hf-authored-end";
+
 export function initSandboxRuntimeModular(): void {
   const state = createRuntimeState();
   const runtimeWindow = window as Window & {
@@ -237,7 +240,18 @@ export function initSandboxRuntimeModular(): void {
       // Preserve explicit root duration so timeline payload can distinguish
       // authored finite duration from loop-inflated timeline duration.
       if (rootEl && node === rootEl) continue;
-      // Non-root compositions derive duration from timeline.
+      // Preserve authored timing for reference-start resolution in Studio and
+      // timeline payload generation. The runtime still strips the public attrs
+      // so visibility/parity continues to derive from the live sub-timeline.
+      const authoredDuration = node.getAttribute("data-duration");
+      const authoredEnd = node.getAttribute("data-end");
+      if (authoredDuration != null && !node.hasAttribute(AUTHORED_DURATION_ATTR)) {
+        node.setAttribute(AUTHORED_DURATION_ATTR, authoredDuration);
+      }
+      if (authoredEnd != null && !node.hasAttribute(AUTHORED_END_ATTR)) {
+        node.setAttribute(AUTHORED_END_ATTR, authoredEnd);
+      }
+      // Non-root compositions derive visible duration from timeline.
       // Strip both data-duration AND data-end so the visibility system
       // falls back to the GSAP timeline duration (parity with preview).
       node.removeAttribute("data-duration");
@@ -354,12 +368,16 @@ export function initSandboxRuntimeModular(): void {
     return resolver.resolveStartForElement(element, fallback);
   };
 
-  const resolveDurationForElement = (element: Element): number | null => {
+  const resolveDurationForElement = (
+    element: Element,
+    opts?: { includeAuthoredTimingAttrs?: boolean },
+  ): number | null => {
     const resolver = createRuntimeStartTimeResolver({
       timelineRegistry: (window.__timelines ?? {}) as Record<
         string,
         RuntimeTimelineLike | undefined
       >,
+      includeAuthoredTimingAttrs: opts?.includeAuthoredTimingAttrs ?? true,
     });
     return resolver.resolveDurationForElement(element);
   };
@@ -1219,18 +1237,28 @@ export function initSandboxRuntimeModular(): void {
       }
 
       const start = resolveStartForElement(rawNode, 0);
-      const duration = resolveDurationForElement(rawNode);
-      const end = duration != null && duration > 0 ? start + duration : Number.POSITIVE_INFINITY;
-      // For composition hosts, use the composition timeline's duration to compute end
-      let computedEnd = end;
+      let duration = resolveDurationForElement(rawNode);
       const compId = rawNode.getAttribute("data-composition-id");
-      if (compId && !Number.isFinite(end)) {
+      if (compId) {
         const compTimeline = (window.__timelines ?? {})[compId];
+        let liveDuration: number | null = null;
         if (compTimeline && typeof compTimeline.duration === "function") {
-          const compDur = compTimeline.duration();
-          if (compDur > 0) computedEnd = start + compDur;
+          const compDur = Number(compTimeline.duration());
+          if (Number.isFinite(compDur) && compDur > 0) {
+            liveDuration = compDur;
+          }
+        }
+
+        // Composition hosts must respect both the authored clip window in the parent
+        // composition and the child composition's own live timeline duration.
+        if (duration != null && duration > 0 && liveDuration != null) {
+          duration = Math.min(duration, liveDuration);
+        } else if ((duration == null || duration <= 0) && liveDuration != null) {
+          duration = liveDuration;
         }
       }
+      const computedEnd =
+        duration != null && duration > 0 ? start + duration : Number.POSITIVE_INFINITY;
       const isVisibleNow =
         state.currentTime >= start &&
         (Number.isFinite(computedEnd) ? state.currentTime < computedEnd : true);

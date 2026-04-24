@@ -13,7 +13,9 @@ import {
 } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import type { StudioApiAdapter } from "../types.js";
+import { validateUploadedMediaBuffer } from "../helpers/mediaValidation.js";
 import { isSafePath } from "../helpers/safePath.js";
+import { removeElementFromHtml } from "../helpers/sourceMutation.js";
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -184,6 +186,43 @@ export function registerFileRoutes(api: Hono, adapter: StudioApiAdapter): void {
     return c.json({ ok: true });
   });
 
+  api.post("/projects/:id/file-mutations/remove-element/*", async (c) => {
+    const id = c.req.param("id");
+    const project = await adapter.resolveProject(id);
+    if (!project) return c.json({ error: "not found" }, 404);
+
+    const filePath = decodeURIComponent(
+      c.req.path.replace(`/projects/${project.id}/file-mutations/remove-element/`, ""),
+    );
+    if (filePath.includes("\0")) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const absPath = resolve(project.dir, filePath);
+    if (!isSafePath(project.dir, absPath)) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    if (!existsSync(absPath)) {
+      return c.json({ error: "not found" }, 404);
+    }
+
+    const body = (await c.req.json().catch(() => null)) as {
+      target?: { id?: string | null; selector?: string; selectorIndex?: number };
+    } | null;
+    if (!body?.target) {
+      return c.json({ error: "target required" }, 400);
+    }
+
+    const originalContent = readFileSync(absPath, "utf-8");
+    const patchedContent = removeElementFromHtml(originalContent, body.target);
+    if (patchedContent === originalContent) {
+      return c.json({ ok: true, changed: false, content: originalContent });
+    }
+
+    writeFileSync(absPath, patchedContent, "utf-8");
+    return c.json({ ok: true, changed: true, content: patchedContent });
+  });
+
   // ── Rename / Move ──
 
   api.patch("/projects/:id/files/*", async (c) => {
@@ -263,6 +302,7 @@ export function registerFileRoutes(api: Hono, adapter: StudioApiAdapter): void {
       const formData = await c.req.formData();
       const uploaded: string[] = [];
       const skipped: string[] = [];
+      const invalid: Array<{ name: string; reason: string }> = [];
 
       for (const [, value] of formData.entries()) {
         if (!(value instanceof File)) continue;
@@ -299,11 +339,16 @@ export function registerFileRoutes(api: Hono, adapter: StudioApiAdapter): void {
         }
 
         const buffer = Buffer.from(await value.arrayBuffer());
+        const validation = validateUploadedMediaBuffer(finalName, buffer);
+        if (!validation.ok) {
+          invalid.push({ name: finalName, reason: validation.reason });
+          continue;
+        }
         writeFileSync(finalPath, buffer);
         uploaded.push(subDir ? join(subDir, finalName) : finalName);
       }
 
-      return c.json({ ok: true, files: uploaded, skipped }, 201);
+      return c.json({ ok: true, files: uploaded, skipped, invalid }, 201);
     },
   );
 }

@@ -5,8 +5,8 @@ import {
   createTexture,
   uploadTexture,
   renderShader,
-  WIDTH,
-  HEIGHT,
+  DEFAULT_WIDTH,
+  DEFAULT_HEIGHT,
   type AccentColors,
 } from "./webgl.js";
 import { getFragSource, type ShaderName } from "./shaders/registry.js";
@@ -14,12 +14,19 @@ import { initCapture, captureScene, captureIncomingScene } from "./capture.js";
 
 declare const gsap: {
   timeline: (opts: Record<string, unknown>) => GsapTimeline;
+  to: (target: HTMLElement | string, vars: Record<string, unknown>) => unknown;
+  fromTo: (
+    target: HTMLElement | string,
+    from: Record<string, unknown>,
+    to: Record<string, unknown>,
+  ) => unknown;
 };
 
 interface GsapTimeline {
   paused: () => boolean;
   play: () => GsapTimeline;
   pause: () => GsapTimeline;
+  time: () => number;
   call: (fn: () => void, args: null, position: number) => GsapTimeline;
   to: (
     target: Record<string, unknown>,
@@ -60,6 +67,14 @@ interface TransState {
   toId: string;
   progress: number;
 }
+
+// Defaults for transition duration/ease. Used by every fallback site in this
+// file — meta-write, browser/render mode, and engine mode — so a transition
+// without explicit `duration`/`ease` plays the same length and curve in
+// preview, the engine's deterministic seek path, and the metadata the
+// producer reads to plan compositing.
+const DEFAULT_DURATION = 0.7;
+const DEFAULT_EASE = "power2.inOut";
 
 function parseHex(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -113,6 +128,9 @@ export function init(config: HyperShaderConfig): GsapTimeline {
     }
   }
 
+  // Locally redeclared (not imported) because @hyperframes/shader-transitions
+  // ships as a standalone CDN bundle and must not depend on @hyperframes/engine.
+  // Keep this in sync with HfTransitionMeta in packages/engine/src/types.ts.
   interface HfTransitionMeta {
     time: number;
     duration: number;
@@ -127,9 +145,9 @@ export function init(config: HyperShaderConfig): GsapTimeline {
     if (hfWin.__hf) {
       hfWin.__hf.transitions = transitions.map((t: TransitionConfig, i: number) => ({
         time: t.time,
-        duration: t.duration ?? 1,
+        duration: t.duration ?? DEFAULT_DURATION,
         shader: t.shader,
-        ease: t.ease ?? "none",
+        ease: t.ease ?? DEFAULT_EASE,
         fromScene: scenes[i] ?? "",
         toScene: scenes[i + 1] ?? "",
       }));
@@ -142,6 +160,10 @@ export function init(config: HyperShaderConfig): GsapTimeline {
 
   const root = document.querySelector<HTMLElement>("[data-composition-id]");
   const compId = config.compositionId || root?.getAttribute("data-composition-id") || "main";
+  const rawW = Number(root?.getAttribute("data-width"));
+  const rawH = Number(root?.getAttribute("data-height"));
+  const compWidth = Number.isFinite(rawW) && rawW > 0 ? rawW : DEFAULT_WIDTH;
+  const compHeight = Number.isFinite(rawH) && rawH > 0 ? rawH : DEFAULT_HEIGHT;
 
   // The Hyperframes engine injects a virtual-time shim (window.__HF_VIRTUAL_TIME__)
   // during render mode and composites every transition itself from the
@@ -170,13 +192,15 @@ export function init(config: HyperShaderConfig): GsapTimeline {
   if (!glCanvas) {
     glCanvas = document.createElement("canvas");
     glCanvas.id = "gl-canvas";
-    glCanvas.width = WIDTH;
-    glCanvas.height = HEIGHT;
-    glCanvas.style.cssText = `position:absolute;top:0;left:0;width:${WIDTH}px;height:${HEIGHT}px;z-index:100;pointer-events:none;display:none;`;
+    glCanvas.style.cssText = `position:absolute;top:0;left:0;z-index:100;pointer-events:none;display:none;`;
     (root || document.body).appendChild(glCanvas);
   }
+  glCanvas.width = compWidth;
+  glCanvas.height = compHeight;
+  glCanvas.style.width = `${compWidth}px`;
+  glCanvas.style.height = `${compHeight}px`;
 
-  const gl = createContext(glCanvas);
+  const gl = createContext(glCanvas, compWidth, compHeight);
   if (!gl) {
     console.warn("[HyperShader] WebGL unavailable — shader transitions disabled.");
     const fallback = config.timeline || gsap.timeline({ paused: true });
@@ -207,7 +231,17 @@ export function init(config: HyperShaderConfig): GsapTimeline {
       const fromTex = textures.get(state.fromId);
       const toTex = textures.get(state.toId);
       if (fromTex && toTex) {
-        renderShader(gl, quadBuf, state.prog, fromTex, toTex, state.progress, accentColors);
+        renderShader(
+          gl,
+          quadBuf,
+          state.prog,
+          fromTex,
+          toTex,
+          state.progress,
+          accentColors,
+          compWidth,
+          compHeight,
+        );
       }
     }
   };
@@ -235,8 +269,8 @@ export function init(config: HyperShaderConfig): GsapTimeline {
     const prog = programs.get(t.shader);
     if (!prog) continue;
 
-    const dur = t.duration ?? 0.7;
-    const ease = t.ease ?? "power2.inOut";
+    const dur = t.duration ?? DEFAULT_DURATION;
+    const ease = t.ease ?? DEFAULT_EASE;
     const T = t.time;
 
     // Pause timeline during async capture to prevent the progress tween
@@ -250,35 +284,71 @@ export function init(config: HyperShaderConfig): GsapTimeline {
         const wasPlaying = !tl.paused();
         if (wasPlaying) tl.pause();
 
-        captureScene(fromScene, bgColor)
+        captureScene(fromScene, bgColor, compWidth, compHeight)
           .then((fromCanvas) => {
             const fromTex = textures.get(fromId);
             if (fromTex) uploadTexture(gl, fromTex, fromCanvas);
-            return captureIncomingScene(toScene, bgColor);
+            return captureIncomingScene(toScene, bgColor, compWidth, compHeight);
           })
           .then((toCanvas) => {
             const toTex = textures.get(toId);
             if (toTex) uploadTexture(gl, toTex, toCanvas);
 
-            document.querySelectorAll<HTMLElement>(".scene").forEach((s) => {
-              s.style.opacity = "0";
-            });
-            canvasEl.style.display = "block";
-            state.prog = prog;
-            state.fromId = fromId;
-            state.toId = toId;
-            state.progress = 0;
-            state.active = true;
+            // Guard: only apply transition-state DOM changes if the playhead
+            // is STILL inside this transition's [T, T+dur] window. Without
+            // this, a seek that crosses multiple transitions launches several
+            // async captures in parallel; each resolves ~80-200ms later and
+            // unconditionally calls querySelectorAll(".scene").opacity = "0"
+            // + canvas.display = "block" + state.active = true. The last one
+            // to resolve wins, so after seeking past a transition, state gets
+            // stuck pointing at the wrong transition and every scene is
+            // hidden — manifesting as the "scrub blanks until the next scene
+            // begins" bug. Checking tl.time() against the transition window
+            // keeps async capture completions from corrupting state the
+            // end-callback (at T+dur) or the next transition's start-callback
+            // has already set correctly.
+            const nowTime = tl.time();
+            const inWindow = nowTime >= T && nowTime < T + dur;
+            if (inWindow) {
+              document.querySelectorAll<HTMLElement>(".scene").forEach((s) => {
+                s.style.opacity = "0";
+              });
+              canvasEl.style.display = "block";
+              state.prog = prog;
+              state.fromId = fromId;
+              state.toId = toId;
+              state.progress = 0;
+              state.active = true;
+            }
 
             if (wasPlaying) tl.play();
           })
           .catch((e) => {
-            console.warn("[HyperShader] Capture failed, falling back to hard cut:", e);
-            document.querySelectorAll<HTMLElement>(".scene").forEach((s) => {
-              s.style.opacity = "0";
-            });
-            const scene = document.getElementById(toId);
-            if (scene) scene.style.opacity = "1";
+            // Graceful fallback for unavoidable capture failures. The most
+            // common cause is Safari's stricter canvas-taint rules combined
+            // with SVG-filter-based background images (e.g. inline
+            // `<feTurbulence>` grain data URLs): html2canvas returns a
+            // tainted canvas, then `gl.texImage2D` throws SecurityError
+            // with no framework opt-out (WebGL spec). In Chrome this path
+            // rarely fires, but when it does (CORS-less cross-origin
+            // images, iframe sandbox restrictions, etc.) the old hard-cut
+            // was jarring. A CSS crossfade is strictly better UX.
+            console.warn("[HyperShader] Capture failed, CSS crossfade fallback:", e);
+            const nowTime = tl.time();
+            const inWindow = nowTime >= T && nowTime < T + dur;
+            if (inWindow) {
+              const fromEl = document.getElementById(fromId);
+              const toEl = document.getElementById(toId);
+              if (fromEl && toEl) {
+                gsap.to(fromEl, { opacity: 0, duration: dur, ease });
+                gsap.fromTo(toEl, { opacity: 0 }, { opacity: 1, duration: dur, ease });
+              } else {
+                document.querySelectorAll<HTMLElement>(".scene").forEach((s) => {
+                  s.style.opacity = "0";
+                });
+                if (toEl) toEl.style.opacity = "1";
+              }
+            }
             if (wasPlaying) tl.play();
           });
       },
@@ -352,13 +422,27 @@ function initEngineMode(
     tl.to({ t: 0 }, { t: 1, duration, ease: "none" }, 0);
   }
 
+  // Initial state: every non-first scene starts hidden. CSS defaults
+  // .scene to opacity:1, so without this every scene would composite at
+  // t=0 and the engine's queryElementStacking() would report all of them
+  // visible — manifesting as ghosting/overlap in the very first frame
+  // before the first transition fires. tl.set() at position 0 ensures
+  // the initial state is part of the timeline's seek graph, so reverse
+  // seeks from inside a later transition correctly restore it.
+  for (let i = 1; i < scenes.length; i++) {
+    const sceneId = scenes[i];
+    if (sceneId) {
+      tl.set(`#${sceneId}`, { opacity: 0 }, 0);
+    }
+  }
+
   for (let i = 0; i < transitions.length; i++) {
     const t = transitions[i];
     const fromId = scenes[i];
     const toId = scenes[i + 1];
     if (!fromId || !toId) continue;
 
-    const dur = t.duration ?? 0.7;
+    const dur = t.duration ?? DEFAULT_DURATION;
     const T = t.time;
 
     // During the transition both scenes need to be visible so the engine

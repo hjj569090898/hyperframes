@@ -10,9 +10,14 @@ import { formatTime } from "../lib/time";
 import { TimelineClip } from "./TimelineClip";
 import { EditPopover } from "./EditModal";
 import {
+  buildClipRangeSelection,
+  getTimelineEditCapabilities,
+  resolveBlockedTimelineEditIntent,
   resolveTimelineAutoScroll,
   resolveTimelineMove,
   resolveTimelineResize,
+  type BlockedTimelineEditIntent,
+  type TimelineRangeSelection,
 } from "./timelineEditing";
 import {
   defaultTimelineTheme,
@@ -22,12 +27,15 @@ import {
   type TimelineTheme,
 } from "./timelineTheme";
 import { getTimelinePixelsPerSecond } from "./timelineZoom";
+import { TIMELINE_ASSET_MIME } from "../../utils/timelineAssetDrop";
 
 /* ── Layout ─────────────────────────────────────────────────────── */
 const GUTTER = 32;
 const TRACK_H = 72;
 const RULER_H = 24;
 const CLIP_Y = 3; // vertical inset inside track
+const CLIP_HANDLE_W = 18;
+const TIMELINE_SCROLL_BUFFER = 24;
 
 interface TrackVisualStyle extends TimelineTrackStyle {
   icon: ReactNode;
@@ -129,6 +137,74 @@ export function getTimelinePlayheadLeft(time: number, pixelsPerSecond: number): 
   return GUTTER + Math.max(0, time) * Math.max(0, pixelsPerSecond);
 }
 
+export function getTimelineCanvasHeight(trackCount: number): number {
+  return RULER_H + Math.max(0, trackCount) * TRACK_H + TIMELINE_SCROLL_BUFFER;
+}
+
+export function shouldHandleTimelineDeleteKey(input: {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  target?: EventTarget | null;
+}): boolean {
+  if (input.key !== "Delete" && input.key !== "Backspace") return false;
+  if (input.metaKey || input.ctrlKey || input.altKey) return false;
+  const target =
+    input.target && typeof input.target === "object"
+      ? (input.target as {
+          tagName?: string;
+          isContentEditable?: boolean;
+          closest?: (selector: string) => Element | null;
+        })
+      : null;
+  if (target) {
+    const tag = target.tagName?.toLowerCase() ?? "";
+    if (target.isContentEditable) return false;
+    if (["input", "textarea", "select"].includes(tag)) return false;
+    if (typeof target.closest === "function" && target.closest("[contenteditable='true']")) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function getDefaultDroppedTrack(trackOrder: number[], rowIndex?: number): number {
+  if (trackOrder.length === 0) return 0;
+  if (rowIndex == null || rowIndex < 0) return trackOrder[0];
+  if (rowIndex >= trackOrder.length) {
+    return Math.max(...trackOrder) + 1;
+  }
+  return trackOrder[rowIndex] ?? trackOrder[trackOrder.length - 1] ?? 0;
+}
+
+export function resolveTimelineAssetDrop(
+  input: {
+    rectLeft: number;
+    rectTop: number;
+    scrollLeft: number;
+    scrollTop: number;
+    pixelsPerSecond: number;
+    duration: number;
+    trackHeight: number;
+    trackOrder: number[];
+  },
+  clientX: number,
+  clientY: number,
+): { start: number; track: number } {
+  const x = clientX - input.rectLeft + input.scrollLeft - GUTTER;
+  const y = clientY - input.rectTop + input.scrollTop - RULER_H;
+  const start = Math.max(
+    0,
+    Math.min(input.duration, Math.round((x / Math.max(input.pixelsPerSecond, 1)) * 100) / 100),
+  );
+  const rowIndex = Math.floor(y / Math.max(input.trackHeight, 1));
+  return {
+    start,
+    track: getDefaultDroppedTrack(input.trackOrder, rowIndex),
+  };
+}
+
 /* ── Component ──────────────────────────────────────────────────── */
 interface TimelineProps {
   /** Called when user seeks via ruler/track click or playhead drag */
@@ -143,8 +219,19 @@ interface TimelineProps {
   /** Optional overlay renderer for clips (e.g. badges, cursors) */
   renderClipOverlay?: (element: import("../store/playerStore").TimelineElement) => ReactNode;
   /** Called when files are dropped onto the empty timeline */
-  onFileDrop?: (files: File[]) => void;
+  onFileDrop?: (
+    files: File[],
+    placement?: { start: number; track: number },
+  ) => Promise<void> | void;
+  /** Called when an existing asset is dropped from the Assets tab */
+  onAssetDrop?: (
+    assetPath: string,
+    placement: { start: number; track: number },
+  ) => Promise<void> | void;
   /** Persist a clip move back into source HTML */
+  onDeleteElement?: (
+    element: import("../store/playerStore").TimelineElement,
+  ) => Promise<void> | void;
   onMoveElement?: (
     element: import("../store/playerStore").TimelineElement,
     updates: Pick<import("../store/playerStore").TimelineElement, "start" | "track">,
@@ -156,6 +243,10 @@ interface TimelineProps {
       "start" | "duration" | "playbackStart"
     >,
   ) => Promise<void> | void;
+  onBlockedEditAttempt?: (
+    element: import("../store/playerStore").TimelineElement,
+    intent: BlockedTimelineEditIntent,
+  ) => void;
   theme?: Partial<TimelineTheme>;
 }
 
@@ -184,14 +275,25 @@ interface ResizingClipState {
   started: boolean;
 }
 
+interface BlockedClipState {
+  element: TimelineElement;
+  intent: BlockedTimelineEditIntent;
+  originClientX: number;
+  originClientY: number;
+  started: boolean;
+}
+
 export const Timeline = memo(function Timeline({
   onSeek,
   onDrillDown,
   renderClipContent,
   renderClipOverlay,
   onFileDrop,
+  onAssetDrop,
+  onDeleteElement,
   onMoveElement,
   onResizeElement,
+  onBlockedEditAttempt,
   theme: themeOverrides,
 }: TimelineProps = {}) {
   const theme = useMemo(() => ({ ...defaultTimelineTheme, ...themeOverrides }), [themeOverrides]);
@@ -209,6 +311,11 @@ export const Timeline = memo(function Timeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hoveredClip, setHoveredClip] = useState<string | null>(null);
   const isDragging = useRef(false);
+  const shiftClickClipRef = useRef<{
+    element: TimelineElement;
+    anchorX: number;
+    anchorY: number;
+  } | null>(null);
   // Range selection (Shift+drag)
   const [shiftHeld, setShiftHeld] = useState(false);
   useMountEffect(() => {
@@ -226,22 +333,21 @@ export const Timeline = memo(function Timeline({
   });
   const isRangeSelecting = useRef(false);
   const rangeAnchorTime = useRef(0);
-  const [rangeSelection, setRangeSelection] = useState<{
-    start: number;
-    end: number;
-    anchorX: number;
-    anchorY: number;
-  } | null>(null);
+  const [rangeSelection, setRangeSelection] = useState<TimelineRangeSelection | null>(null);
   const [draggedClip, setDraggedClip] = useState<DraggedClipState | null>(null);
   const draggedClipRef = useRef<DraggedClipState | null>(null);
   draggedClipRef.current = draggedClip;
   const [resizingClip, setResizingClip] = useState<ResizingClipState | null>(null);
   const resizingClipRef = useRef<ResizingClipState | null>(null);
   resizingClipRef.current = resizingClip;
+  const blockedClipRef = useRef<BlockedClipState | null>(null);
+  const deleteInFlightRef = useRef(false);
   const onMoveElementRef = useRef(onMoveElement);
   onMoveElementRef.current = onMoveElement;
   const onResizeElementRef = useRef(onResizeElement);
   onResizeElementRef.current = onResizeElement;
+  const onDeleteElementRef = useRef(onDeleteElement);
+  onDeleteElementRef.current = onDeleteElement;
   const suppressClickRef = useRef(false);
   const [showPopover, setShowPopover] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -312,6 +418,12 @@ export const Timeline = memo(function Timeline({
     }
     return [...trackOrder, draggedClip.previewTrack].sort((a, b) => a - b);
   }, [draggedClip, trackOrder]);
+  const selectedElement = useMemo(
+    () => elements.find((element) => (element.key ?? element.id) === selectedElementId) ?? null,
+    [elements, selectedElementId],
+  );
+  const selectedElementRef = useRef<TimelineElement | null>(selectedElement);
+  selectedElementRef.current = selectedElement;
 
   // Calculate effective pixels per second
   // In fit mode, use clientWidth (excludes scrollbar) with a small padding
@@ -545,6 +657,7 @@ export const Timeline = memo(function Timeline({
     const handleWindowPointerMove = (e: PointerEvent) => {
       const drag = draggedClipRef.current;
       const resize = resizingClipRef.current;
+      const blocked = blockedClipRef.current;
       if (resize) {
         const distance = Math.abs(e.clientX - resize.originClientX);
         if (!resize.started && distance < 2) return;
@@ -560,6 +673,8 @@ export const Timeline = memo(function Timeline({
                   Math.max(resize.element.playbackRate ?? 1, 0.1),
               )
             : Number.POSITIVE_INFINITY;
+        const normalizedTag = resize.element.tag.toLowerCase();
+        const canSeedPlaybackStart = normalizedTag === "audio" || normalizedTag === "video";
         const nextResize = resolveTimelineResize(
           {
             start: resize.element.start,
@@ -568,7 +683,10 @@ export const Timeline = memo(function Timeline({
             pixelsPerSecond: ppsRef.current,
             minStart: 0,
             maxEnd: Math.min(durationRef.current, resize.element.start + sourceRemaining),
-            playbackStart: resize.element.playbackStart,
+            playbackStart:
+              resize.edge === "start" && canSeedPlaybackStart
+                ? (resize.element.playbackStart ?? 0)
+                : resize.element.playbackStart,
             playbackRate: resize.element.playbackRate,
           },
           resize.edge,
@@ -586,6 +704,23 @@ export const Timeline = memo(function Timeline({
               }
             : prev,
         );
+        return;
+      }
+      if (blocked) {
+        const distance = Math.hypot(
+          e.clientX - blocked.originClientX,
+          e.clientY - blocked.originClientY,
+        );
+        const threshold = blocked.intent === "move" ? 4 : 2;
+        if (!blocked.started && distance < threshold) return;
+        if (!blocked.started) {
+          blocked.started = true;
+          blockedClipRef.current = blocked;
+          suppressClickRef.current = true;
+          setShowPopover(false);
+          setRangeSelection(null);
+          onBlockedEditAttempt?.(blocked.element, blocked.intent);
+        }
         return;
       }
       if (!drag) return;
@@ -643,6 +778,14 @@ export const Timeline = memo(function Timeline({
         return;
       }
 
+      const blocked = blockedClipRef.current;
+      if (blocked) {
+        blockedClipRef.current = null;
+        if (!blocked.started) return;
+        clearSuppressedClick();
+        return;
+      }
+
       const drag = draggedClipRef.current;
       if (!drag) return;
       draggedClipRef.current = null;
@@ -687,6 +830,28 @@ export const Timeline = memo(function Timeline({
     };
   });
 
+  useMountEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandleTimelineDeleteKey(event)) return;
+      const selected = selectedElementRef.current;
+      const onDelete = onDeleteElementRef.current;
+      if (!selected || !onDelete || deleteInFlightRef.current) return;
+      event.preventDefault();
+      deleteInFlightRef.current = true;
+      suppressClickRef.current = true;
+      setShowPopover(false);
+      setRangeSelection(null);
+      Promise.resolve(onDelete(selected)).finally(() => {
+        deleteInFlightRef.current = false;
+        requestAnimationFrame(() => {
+          suppressClickRef.current = false;
+        });
+      });
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return;
@@ -706,6 +871,7 @@ export const Timeline = memo(function Timeline({
         return;
       }
 
+      shiftClickClipRef.current = null;
       // Normal click on a clip — let the clip handle it
       if ((e.target as HTMLElement).closest("[data-clip]")) return;
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -739,8 +905,14 @@ export const Timeline = memo(function Timeline({
   const handlePointerUp = useCallback(() => {
     if (isRangeSelecting.current) {
       isRangeSelecting.current = false;
-      // Show popover if range is meaningful (> 0.2s)
+      const pendingShiftClick = shiftClickClipRef.current;
+      shiftClickClipRef.current = null;
       setRangeSelection((prev) => {
+        if (prev && pendingShiftClick && Math.abs(prev.end - prev.start) <= 0.2) {
+          setShowPopover(true);
+          return buildClipRangeSelection(pendingShiftClick.element, pendingShiftClick);
+        }
+        // Show popover if range is meaningful (> 0.2s)
         if (prev && Math.abs(prev.end - prev.start) > 0.2) {
           setShowPopover(true);
           return prev;
@@ -770,6 +942,74 @@ export const Timeline = memo(function Timeline({
   );
 
   const [isDragOver, setIsDragOver] = useState(false);
+  const handleAssetDragOver = useCallback((e: React.DragEvent) => {
+    const hasFiles = e.dataTransfer.files.length > 0;
+    const hasAsset = Array.from(e.dataTransfer.types).includes(TIMELINE_ASSET_MIME);
+    if (!hasFiles && !hasAsset) return;
+    e.preventDefault();
+    if (hasAsset) {
+      e.dataTransfer.dropEffect = "copy";
+    }
+    setIsDragOver(true);
+  }, []);
+
+  const handleAssetDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      if (onFileDrop && e.dataTransfer.files.length > 0) {
+        const scroll = scrollRef.current;
+        const rect = scroll?.getBoundingClientRect();
+        const placement =
+          scroll && rect
+            ? resolveTimelineAssetDrop(
+                {
+                  rectLeft: rect.left,
+                  rectTop: rect.top,
+                  scrollLeft: scroll.scrollLeft,
+                  scrollTop: scroll.scrollTop,
+                  pixelsPerSecond: ppsRef.current,
+                  duration: durationRef.current,
+                  trackHeight: TRACK_H,
+                  trackOrder: trackOrderRef.current,
+                },
+                e.clientX,
+                e.clientY,
+              )
+            : undefined;
+        void onFileDrop(Array.from(e.dataTransfer.files), placement);
+        return;
+      }
+
+      const assetPayload = e.dataTransfer.getData(TIMELINE_ASSET_MIME);
+      if (!assetPayload || !onAssetDrop) return;
+      try {
+        const parsed = JSON.parse(assetPayload) as { path?: string };
+        if (!parsed.path) return;
+        const scroll = scrollRef.current;
+        const rect = scroll?.getBoundingClientRect();
+        if (!scroll || !rect) return;
+        const placement = resolveTimelineAssetDrop(
+          {
+            rectLeft: rect.left,
+            rectTop: rect.top,
+            scrollLeft: scroll.scrollLeft,
+            scrollTop: scroll.scrollTop,
+            pixelsPerSecond: ppsRef.current,
+            duration: durationRef.current,
+            trackHeight: TRACK_H,
+            trackOrder: trackOrderRef.current,
+          },
+          e.clientX,
+          e.clientY,
+        );
+        void onAssetDrop(parsed.path, placement);
+      } catch {
+        // ignore malformed drag payloads
+      }
+    },
+    [onAssetDrop, onFileDrop],
+  );
 
   if (!timelineReady || elements.length === 0) {
     return (
@@ -777,18 +1017,9 @@ export const Timeline = memo(function Timeline({
         className={`h-full border-t bg-[#0a0a0b] flex flex-col select-none transition-colors duration-150 ${
           isDragOver ? "border-studio-accent/50 bg-studio-accent/[0.03]" : "border-neutral-800/50"
         }`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragOver(true);
-        }}
+        onDragOver={handleAssetDragOver}
         onDragLeave={() => setIsDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDragOver(false);
-          if (onFileDrop && e.dataTransfer.files.length > 0) {
-            onFileDrop(Array.from(e.dataTransfer.files));
-          }
-        }}
+        onDrop={handleAssetDrop}
       >
         {/* Ruler */}
         <div
@@ -868,7 +1099,7 @@ export const Timeline = memo(function Timeline({
     );
   }
 
-  const totalH = RULER_H + displayTrackOrder.length * TRACK_H;
+  const totalH = getTimelineCanvasHeight(displayTrackOrder.length);
   const draggedElement = draggedClip?.element ?? null;
   const activeDraggedElement =
     draggedClip?.started === true && draggedElement
@@ -919,12 +1150,6 @@ export const Timeline = memo(function Timeline({
                   {element.tag}
                 </span>
               </div>
-              <span
-                className="text-[14px] font-semibold truncate leading-none tracking-[-0.02em]"
-                style={{ color: theme.textPrimary }}
-              >
-                {element.id || element.tag}
-              </span>
               <div className="flex items-center">
                 <span
                   className="max-w-full truncate rounded-md px-1.5 py-0.5 text-[10px] font-medium tabular-nums leading-none"
@@ -958,6 +1183,9 @@ export const Timeline = memo(function Timeline({
       <div
         ref={scrollRef}
         className={`${zoomMode === "fit" ? "overflow-x-hidden" : "overflow-x-auto"} overflow-y-auto h-full`}
+        onDragOver={handleAssetDragOver}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleAssetDrop}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -995,7 +1223,7 @@ export const Timeline = memo(function Timeline({
             {shiftHeld && !rangeSelection && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
                 <span className="text-[9px] font-medium" style={{ color: theme.textSecondary }}>
-                  Drag to select range
+                  Drag or click a clip to edit range
                 </span>
               </div>
             )}
@@ -1081,6 +1309,7 @@ export const Timeline = memo(function Timeline({
                   {els.map((el, i) => {
                     const clipStyle = getStyle(el.tag);
                     const elementKey = el.key ?? el.id;
+                    const capabilities = getTimelineEditCapabilities(el);
                     const isSelected = selectedElementId === elementKey;
                     const isComposition = !!el.compositionSrc;
                     const clipKey = `${elementKey}-${i}`;
@@ -1109,7 +1338,10 @@ export const Timeline = memo(function Timeline({
                         onHoverEnd={() => setHoveredClip(null)}
                         onResizeStart={(edge, e) => {
                           if (e.button !== 0 || e.shiftKey || !onResizeElement) return;
+                          if (edge === "start" && !capabilities.canTrimStart) return;
+                          if (edge === "end" && !capabilities.canTrimEnd) return;
                           e.stopPropagation();
+                          blockedClipRef.current = null;
                           setShowPopover(false);
                           setRangeSelection(null);
                           setResizingClip({
@@ -1123,10 +1355,41 @@ export const Timeline = memo(function Timeline({
                           });
                         }}
                         onPointerDown={(e) => {
-                          if (e.button !== 0 || e.shiftKey || !onMoveElement) return;
+                          if (e.button !== 0) return;
+                          if (e.shiftKey) {
+                            shiftClickClipRef.current = {
+                              element: el,
+                              anchorX: e.clientX,
+                              anchorY: e.clientY,
+                            };
+                            return;
+                          }
+                          const target = e.currentTarget as HTMLElement;
+                          const rect = target.getBoundingClientRect();
+                          const blockedIntent = resolveBlockedTimelineEditIntent({
+                            width: rect.width,
+                            offsetX: e.clientX - rect.left,
+                            handleWidth: CLIP_HANDLE_W,
+                            capabilities,
+                          });
+                          if (
+                            blockedIntent &&
+                            ((blockedIntent === "move" && onMoveElement) ||
+                              (blockedIntent !== "move" && onResizeElement))
+                          ) {
+                            blockedClipRef.current = {
+                              element: el,
+                              intent: blockedIntent,
+                              originClientX: e.clientX,
+                              originClientY: e.clientY,
+                              started: false,
+                            };
+                            return;
+                          }
+                          if (!onMoveElement || !capabilities.canMove) return;
+                          blockedClipRef.current = null;
                           setShowPopover(false);
                           setRangeSelection(null);
-                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                           setDraggedClip({
                             element: el,
                             originClientX: e.clientX,
@@ -1266,7 +1529,7 @@ export const Timeline = memo(function Timeline({
               Shift
             </kbd>
             <span className="text-[9px]" style={{ color: theme.textSecondary }}>
-              + drag to edit range
+              + drag/click to edit range
             </span>
           </div>
         </div>

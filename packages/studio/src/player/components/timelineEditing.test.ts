@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildTrackZIndexMap,
+  buildClipRangeSelection,
   buildPromptCopyText,
+  buildTimelineElementAgentPrompt,
   buildTimelineAgentPrompt,
+  buildTrackZIndexMap,
+  canOffsetTrimClipStart,
+  getTimelineEditCapabilities,
+  hasPatchableTimelineTarget,
+  resolveBlockedTimelineEditIntent,
   resolveTimelineAutoScroll,
   resolveTimelineMove,
   resolveTimelineResize,
@@ -154,13 +160,13 @@ describe("resolveTimelineMove", () => {
 });
 
 describe("buildTrackZIndexMap", () => {
-  it("maps sorted tracks onto stable positive z-index values", () => {
+  it("maps visually higher tracks onto higher z-index values", () => {
     expect(buildTrackZIndexMap([-2, -1, 0, 3])).toEqual(
       new Map([
-        [-2, 1],
-        [-1, 2],
-        [0, 3],
-        [3, 4],
+        [-2, 4],
+        [-1, 3],
+        [0, 2],
+        [3, 1],
       ]),
     );
   });
@@ -168,11 +174,258 @@ describe("buildTrackZIndexMap", () => {
   it("deduplicates tracks before assigning z-index values", () => {
     expect(buildTrackZIndexMap([-1, 0, -1, 3, 3])).toEqual(
       new Map([
-        [-1, 1],
+        [-1, 3],
         [0, 2],
-        [3, 3],
+        [3, 1],
       ]),
     );
+  });
+});
+
+describe("canOffsetTrimClipStart", () => {
+  it("allows front trim for clips that carry playback offset metadata", () => {
+    expect(
+      canOffsetTrimClipStart({
+        tag: "div",
+        playbackStartAttr: "media-start",
+      }),
+    ).toBe(true);
+  });
+
+  it("allows front trim for media clips with source duration metadata", () => {
+    expect(
+      canOffsetTrimClipStart({
+        tag: "video",
+        sourceDuration: 12,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows front trim for plain audio clips even before media-start exists", () => {
+    expect(
+      canOffsetTrimClipStart({
+        tag: "audio",
+      }),
+    ).toBe(true);
+  });
+
+  it("blocks front trim for generic motion clips", () => {
+    expect(
+      canOffsetTrimClipStart({
+        tag: "section",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("hasPatchableTimelineTarget", () => {
+  it("returns true when the clip has a DOM id", () => {
+    expect(hasPatchableTimelineTarget({ domId: "hero-card" })).toBe(true);
+  });
+
+  it("returns true when the clip has a selector", () => {
+    expect(hasPatchableTimelineTarget({ selector: ".hero-card" })).toBe(true);
+  });
+
+  it("returns false when the clip has no stable patch target", () => {
+    expect(hasPatchableTimelineTarget({})).toBe(false);
+  });
+});
+
+describe("getTimelineEditCapabilities", () => {
+  it("does not disable editable audio just because it spans multiple scenes", () => {
+    expect(
+      getTimelineEditCapabilities({
+        tag: "audio",
+        duration: 8,
+        selector: "#voiceover",
+        sourceDuration: 8,
+      }),
+    ).toEqual({
+      canMove: true,
+      canTrimStart: true,
+      canTrimEnd: true,
+    });
+  });
+
+  it("disables move and trims for generic motion clips even when patchable", () => {
+    expect(
+      getTimelineEditCapabilities({
+        tag: "section",
+        duration: 2,
+        selector: ".feature-card",
+      }),
+    ).toEqual({
+      canMove: false,
+      canTrimStart: false,
+      canTrimEnd: false,
+    });
+  });
+
+  it("allows move and both trims for patchable media clips with offset support", () => {
+    expect(
+      getTimelineEditCapabilities({
+        tag: "video",
+        duration: 2,
+        selector: "#media-card",
+        playbackStartAttr: "media-start",
+        sourceDuration: 10,
+      }),
+    ).toEqual({
+      canMove: true,
+      canTrimStart: true,
+      canTrimEnd: true,
+    });
+  });
+
+  it("treats wrapped media clips with media metadata as deterministic", () => {
+    expect(
+      getTimelineEditCapabilities({
+        tag: "div",
+        duration: 2,
+        selector: "#media-card",
+        playbackStartAttr: "media-start",
+        sourceDuration: 10,
+      }),
+    ).toEqual({
+      canMove: true,
+      canTrimStart: true,
+      canTrimEnd: true,
+    });
+  });
+
+  it("allows move and end trim for patchable composition hosts", () => {
+    expect(
+      getTimelineEditCapabilities({
+        tag: "div",
+        duration: 3,
+        selector: '[data-composition-id="intro"]',
+        compositionSrc: "compositions/intro.html",
+      }),
+    ).toEqual({
+      canMove: true,
+      canTrimStart: false,
+      canTrimEnd: true,
+    });
+  });
+
+  it("disables all timeline edits for clips without a patchable target", () => {
+    expect(
+      getTimelineEditCapabilities({
+        tag: "video",
+        duration: 2,
+        sourceDuration: 10,
+      }),
+    ).toEqual({
+      canMove: false,
+      canTrimStart: false,
+      canTrimEnd: false,
+    });
+  });
+});
+
+describe("resolveBlockedTimelineEditIntent", () => {
+  it("returns move when the clip body is blocked", () => {
+    expect(
+      resolveBlockedTimelineEditIntent({
+        width: 160,
+        offsetX: 80,
+        handleWidth: 18,
+        capabilities: {
+          canMove: false,
+          canTrimStart: false,
+          canTrimEnd: false,
+        },
+      }),
+    ).toBe("move");
+  });
+
+  it("returns resize-start when the left edge is blocked", () => {
+    expect(
+      resolveBlockedTimelineEditIntent({
+        width: 160,
+        offsetX: 8,
+        handleWidth: 18,
+        capabilities: {
+          canMove: false,
+          canTrimStart: false,
+          canTrimEnd: true,
+        },
+      }),
+    ).toBe("resize-start");
+  });
+
+  it("returns resize-end when the right edge is blocked", () => {
+    expect(
+      resolveBlockedTimelineEditIntent({
+        width: 160,
+        offsetX: 154,
+        handleWidth: 18,
+        capabilities: {
+          canMove: false,
+          canTrimStart: true,
+          canTrimEnd: false,
+        },
+      }),
+    ).toBe("resize-end");
+  });
+
+  it("does not block the left edge when the clip can still be moved", () => {
+    expect(
+      resolveBlockedTimelineEditIntent({
+        width: 160,
+        offsetX: 8,
+        handleWidth: 18,
+        capabilities: {
+          canMove: true,
+          canTrimStart: false,
+          canTrimEnd: true,
+        },
+      }),
+    ).toBe(null);
+  });
+
+  it("does not swallow the full surface of a narrow movable clip", () => {
+    expect(
+      resolveBlockedTimelineEditIntent({
+        width: 12,
+        offsetX: 6,
+        handleWidth: 18,
+        capabilities: {
+          canMove: true,
+          canTrimStart: false,
+          canTrimEnd: false,
+        },
+      }),
+    ).toBe(null);
+  });
+
+  it("returns null when the relevant edit is supported", () => {
+    expect(
+      resolveBlockedTimelineEditIntent({
+        width: 160,
+        offsetX: 8,
+        handleWidth: 18,
+        capabilities: {
+          canMove: true,
+          canTrimStart: true,
+          canTrimEnd: true,
+        },
+      }),
+    ).toBe(null);
+  });
+});
+
+describe("buildClipRangeSelection", () => {
+  it("anchors the full clip range at the click position", () => {
+    expect(
+      buildClipRangeSelection({ start: 1.25, duration: 3.5 }, { anchorX: 320, anchorY: 180 }),
+    ).toEqual({
+      start: 1.25,
+      end: 4.75,
+      anchorX: 320,
+      anchorY: 180,
+    });
   });
 });
 
@@ -244,6 +497,22 @@ describe("buildTimelineAgentPrompt", () => {
   });
 });
 
+describe("buildTimelineElementAgentPrompt", () => {
+  it("includes the clip context and guidance for agent-based edits", () => {
+    expect(
+      buildTimelineElementAgentPrompt({
+        id: "feature-card",
+        tag: "section",
+        start: 1.4,
+        duration: 1.6,
+        track: 1,
+        sourceFile: "index.html",
+        selector: "#feature-card",
+      }),
+    ).toContain("If this clip is animated with GSAP");
+  });
+});
+
 describe("resolveTimelineResize", () => {
   it("shrinks clip duration from the right edge", () => {
     expect(
@@ -279,6 +548,25 @@ describe("resolveTimelineResize", () => {
         150,
       ),
     ).toEqual({ start: 1.5, duration: 2.5, playbackStart: 1 });
+  });
+
+  it("can seed front trim from an implicit zero playback start", () => {
+    expect(
+      resolveTimelineResize(
+        {
+          start: 0,
+          duration: 8,
+          originClientX: 100,
+          pixelsPerSecond: 100,
+          minStart: 0,
+          maxEnd: 8,
+          playbackStart: 0,
+          playbackRate: 1,
+        },
+        "start",
+        200,
+      ),
+    ).toEqual({ start: 1, duration: 7, playbackStart: 1 });
   });
 
   it("prevents extending media left past available source before media-start", () => {

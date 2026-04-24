@@ -134,8 +134,7 @@ describe.skipIf(!HAS_FFMPEG)("extractAllVideoFrames on a VFR source", () => {
       "-i",
       "testsrc2=s=320x180:d=10:rate=60",
       "-vf",
-      "drawtext=text='n=%{n}':fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.6," +
-        "select='not(between(n,30,89))*not(between(n,180,239))*not(between(n,330,389))*not(between(n,480,539))'",
+      "select='not(between(n\\,30\\,89))*not(between(n\\,180\\,239))*not(between(n\\,330\\,389))*not(between(n\\,480\\,539))'",
       "-vsync",
       "vfr",
       "-c:v",
@@ -190,6 +189,223 @@ describe.skipIf(!HAS_FFMPEG)("extractAllVideoFrames on a VFR source", () => {
     // Pre-fix behavior produced ~90 frames (a 25% shortfall).
     expect(frames.length).toBeGreaterThanOrEqual(119);
     expect(frames.length).toBeLessThanOrEqual(121);
+
+    expect(result.phaseBreakdown).toBeDefined();
+    expect(result.phaseBreakdown.extractMs).toBeGreaterThan(0);
+    expect(result.phaseBreakdown.vfrPreflightCount).toBe(1);
+    expect(result.phaseBreakdown.vfrPreflightMs).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("reuses extracted frames on a warm cache hit", async () => {
+    const CACHE_DIR = mkdtempSync(join(tmpdir(), "hf-extract-cache-test-"));
+    const SRC = join(FIXTURE_DIR, "cache-src.mp4");
+
+    // Synthesize a clean CFR SDR clip — bypasses VFR preflight so the cache
+    // key is stable across the two runs.
+    const synth = await runFfmpeg([
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=s=320x180:d=2:rate=30",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-pix_fmt",
+      "yuv420p",
+      SRC,
+    ]);
+    if (!synth.success) {
+      throw new Error(`Cache fixture synthesis failed: ${synth.stderr.slice(-400)}`);
+    }
+
+    const video: VideoElement = {
+      id: "cv1",
+      src: SRC,
+      start: 0,
+      end: 2,
+      mediaStart: 0,
+      hasAudio: false,
+    };
+
+    const outDirA = join(FIXTURE_DIR, "out-cache-miss");
+    mkdirSync(outDirA, { recursive: true });
+    const miss = await extractAllVideoFrames(
+      [video],
+      FIXTURE_DIR,
+      { fps: 30, outputDir: outDirA },
+      undefined,
+      { extractCacheDir: CACHE_DIR },
+    );
+    expect(miss.errors).toEqual([]);
+    expect(miss.phaseBreakdown.cacheHits).toBe(0);
+    expect(miss.phaseBreakdown.cacheMisses).toBe(1);
+
+    const outDirB = join(FIXTURE_DIR, "out-cache-hit");
+    mkdirSync(outDirB, { recursive: true });
+    const hit = await extractAllVideoFrames(
+      [video],
+      FIXTURE_DIR,
+      { fps: 30, outputDir: outDirB },
+      undefined,
+      { extractCacheDir: CACHE_DIR },
+    );
+    expect(hit.errors).toEqual([]);
+    expect(hit.phaseBreakdown.cacheHits).toBe(1);
+    expect(hit.phaseBreakdown.cacheMisses).toBe(0);
+    // extractMs on a hit is only the cache-lookup bookkeeping; asserting <50ms
+    // is loose enough to survive CI jitter but tight enough to catch a
+    // regression that accidentally triggered ffmpeg again.
+    expect(hit.phaseBreakdown.extractMs).toBeLessThan(50);
+    expect(hit.extracted).toHaveLength(1);
+    expect(hit.extracted[0]!.totalFrames).toBe(miss.extracted[0]!.totalFrames);
+
+    rmSync(CACHE_DIR, { recursive: true, force: true });
+  }, 60_000);
+
+  it("invalidates the cache when fps changes", async () => {
+    const CACHE_DIR = mkdtempSync(join(tmpdir(), "hf-extract-cache-test-"));
+    const SRC = join(FIXTURE_DIR, "cache-fps-src.mp4");
+
+    const synth = await runFfmpeg([
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=s=320x180:d=1:rate=30",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-pix_fmt",
+      "yuv420p",
+      SRC,
+    ]);
+    if (!synth.success) {
+      throw new Error(`Cache-fps fixture synthesis failed: ${synth.stderr.slice(-400)}`);
+    }
+
+    const video: VideoElement = {
+      id: "cv2",
+      src: SRC,
+      start: 0,
+      end: 1,
+      mediaStart: 0,
+      hasAudio: false,
+    };
+
+    const outA = join(FIXTURE_DIR, "out-cache-fps-30");
+    mkdirSync(outA, { recursive: true });
+    const first = await extractAllVideoFrames(
+      [video],
+      FIXTURE_DIR,
+      { fps: 30, outputDir: outA },
+      undefined,
+      { extractCacheDir: CACHE_DIR },
+    );
+    expect(first.phaseBreakdown.cacheMisses).toBe(1);
+
+    const outB = join(FIXTURE_DIR, "out-cache-fps-60");
+    mkdirSync(outB, { recursive: true });
+    const second = await extractAllVideoFrames(
+      [video],
+      FIXTURE_DIR,
+      { fps: 60, outputDir: outB },
+      undefined,
+      { extractCacheDir: CACHE_DIR },
+    );
+    expect(second.phaseBreakdown.cacheMisses).toBe(1);
+    expect(second.phaseBreakdown.cacheHits).toBe(0);
+
+    rmSync(CACHE_DIR, { recursive: true, force: true });
+  }, 60_000);
+
+  // Regression test for the segment-scope HDR preflight fix: pre-fix,
+  // convertSdrToHdr re-encoded the entire source, so a 30-minute SDR source
+  // contributing a 2-second clip took ~200× longer than needed. Post-fix the
+  // converted file's duration matches the used segment.
+  it("bounds the SDR→HDR preflight re-encode to the used segment", async () => {
+    const SDR_LONG = join(FIXTURE_DIR, "sdr-long.mp4");
+    const HDR_SHORT = join(FIXTURE_DIR, "hdr-short.mp4");
+
+    const sdrResult = await runFfmpeg([
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=s=320x180:d=10:rate=30",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-pix_fmt",
+      "yuv420p",
+      SDR_LONG,
+    ]);
+    if (!sdrResult.success) {
+      throw new Error(`SDR fixture synthesis failed: ${sdrResult.stderr.slice(-400)}`);
+    }
+
+    // Tag as bt2020nc / smpte2084 so the preflight path considers the timeline mixed-HDR.
+    const hdrResult = await runFfmpeg([
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=s=320x180:d=2:rate=30",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-pix_fmt",
+      "yuv420p",
+      "-color_primaries",
+      "bt2020",
+      "-color_trc",
+      "smpte2084",
+      "-colorspace",
+      "bt2020nc",
+      HDR_SHORT,
+    ]);
+    if (!hdrResult.success) {
+      throw new Error(`HDR fixture synthesis failed: ${hdrResult.stderr.slice(-400)}`);
+    }
+
+    const outputDir = join(FIXTURE_DIR, "out-hdr-segment");
+    mkdirSync(outputDir, { recursive: true });
+
+    const videos: VideoElement[] = [
+      { id: "sdr", src: SDR_LONG, start: 0, end: 2, mediaStart: 0, hasAudio: false },
+      { id: "hdr", src: HDR_SHORT, start: 2, end: 4, mediaStart: 0, hasAudio: false },
+    ];
+
+    const result = await extractAllVideoFrames(videos, FIXTURE_DIR, {
+      fps: 30,
+      outputDir,
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.phaseBreakdown.hdrPreflightCount).toBe(1);
+
+    const convertedPath = join(outputDir, "_hdr_normalized", "sdr_hdr.mp4");
+    expect(existsSync(convertedPath)).toBe(true);
+    const convertedMeta = await extractVideoMetadata(convertedPath);
+    // Pre-fix duration matched the 10s source; post-fix it matches the 2s segment
+    // (±0.2s for encoder keyframe/seek alignment).
+    expect(convertedMeta.durationSeconds).toBeGreaterThan(1.8);
+    expect(convertedMeta.durationSeconds).toBeLessThan(2.5);
   }, 60_000);
 
   // Asserts both frame-count correctness and that we don't emit long runs of

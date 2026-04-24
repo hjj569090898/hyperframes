@@ -33,11 +33,16 @@ npx skills add heygen-com/hyperframes
 
 This teaches your agent (Claude Code, Cursor, Gemini CLI, Codex) how to write correct compositions and GSAP animations. In Claude Code, the skills register as slash commands — invoke `/hyperframes` to author compositions, `/hyperframes-cli` for CLI commands, and `/gsap` for animation help.
 
+For Claude Design, open [`skills/claude-design-hyperframes/SKILL.md`](https://github.com/heygen-com/hyperframes/blob/main/skills/claude-design-hyperframes/SKILL.md) on GitHub and click the download button (↓) to save it, then attach the file to your Claude Design chat. It produces a valid first draft; refine in any AI coding agent. See the [Claude Design guide](https://hyperframes.heygen.com/guides/claude-design).
+
 For Codex specifically, the same skills are also exposed as an [OpenAI Codex plugin](./.codex-plugin/plugin.json) — sparse-install just the plugin surface:
 
 ```bash
 codex plugin marketplace add heygen-com/hyperframes --sparse .codex-plugin --sparse skills --sparse assets
 ```
+
+For Claude Code, the repo also ships a [Claude Code plugin manifest](./.claude-plugin/plugin.json): test it locally with `claude --plugin-dir .`. The manifest intentionally omits `skills` because Claude Code auto-discovers the root `skills/` directory by convention, and for marketplace submission use the title `HyperFrames by HeyGen` plus the black/white icon assets at [`assets/claude-code-icon-dark.svg`](./assets/claude-code-icon-dark.svg) and [`assets/claude-code-icon-light.svg`](./assets/claude-code-icon-light.svg) for the two theme slots.
+For Cursor, the same skills are packaged as a [Cursor plugin](./.cursor-plugin/plugin.json) — install from the Cursor Marketplace, or sideload by cloning this repo and pointing **Settings → Plugins → Load unpacked** at the repo root.
 
 #### Try it: example prompts
 
@@ -179,17 +184,43 @@ HyperFrames ships [skills](https://github.com/vercel-labs/skills) that teach AI 
 npx skills add heygen-com/hyperframes
 ```
 
-| Skill                    | What it teaches                                                                              |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| `hyperframes`            | HTML composition authoring, captions, TTS, audio-reactive animation, transitions             |
-| `hyperframes-cli`        | CLI commands: init, lint, preview, render, transcribe, tts, doctor                           |
-| `hyperframes-registry`   | Block and component installation via `hyperframes add`                                       |
-| `website-to-hyperframes` | Capture a URL and turn it into a video — full website-to-video pipeline                      |
-| `gsap`                   | GSAP animation API, timelines, easing, ScrollTrigger, plugins, React/Vue/Svelte, performance |
+| Skill                       | What it teaches                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `claude-design-hyperframes` | Template-first Claude Design skill — pre-valid skeletons, produces video drafts for refinement in any coding agent |
+| `hyperframes`               | HTML composition authoring, captions, TTS, audio-reactive animation, transitions                                   |
+| `hyperframes-cli`           | CLI commands: init, lint, preview, render, transcribe, tts, doctor                                                 |
+| `hyperframes-registry`      | Block and component installation via `hyperframes add`                                                             |
+| `website-to-hyperframes`    | Capture a URL and turn it into a video — full website-to-video pipeline                                            |
+| `gsap`                      | GSAP animation API, timelines, easing, ScrollTrigger, plugins, React/Vue/Svelte, performance                       |
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Cloning the repo
+
+The repo uses [Git LFS](https://git-lfs.com) for golden regression-test baselines under `packages/producer/tests/**/output.mp4` (~240 MB of `.mp4` files). If you're cloning the full repo for development, install Git LFS first:
+
+```bash
+# macOS
+brew install git-lfs
+
+# Ubuntu/Debian
+sudo apt install git-lfs
+
+# Windows
+winget install GitHub.GitLFS
+# (or install Git for Windows, which bundles Git LFS as an optional component)
+
+# Then (once, per machine)
+git lfs install
+```
+
+If you hit `git-lfs filter-process: command not found` during `git clone` or `npx skills add heygen-com/hyperframes`, install Git LFS and retry. You can also skip LFS content if you only need the source files:
+
+```bash
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/heygen-com/hyperframes.git
+```
 
 ## License
 

@@ -1,12 +1,16 @@
 import { vertSrc } from "./shaders/common.js";
 
-export const WIDTH = 1920;
-export const HEIGHT = 1080;
+export const DEFAULT_WIDTH = 1920;
+export const DEFAULT_HEIGHT = 1080;
 
-export function createContext(canvas: HTMLCanvasElement): WebGLRenderingContext | null {
+export function createContext(
+  canvas: HTMLCanvasElement,
+  width: number = DEFAULT_WIDTH,
+  height: number = DEFAULT_HEIGHT,
+): WebGLRenderingContext | null {
   const gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
   if (!gl) return null;
-  gl.viewport(0, 0, WIDTH, HEIGHT);
+  gl.viewport(0, 0, width, height);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   return gl as WebGLRenderingContext;
 }
@@ -91,6 +95,8 @@ export function renderShader(
   texTo: WebGLTexture,
   progress: number,
   colors?: AccentColors,
+  width: number = DEFAULT_WIDTH,
+  height: number = DEFAULT_HEIGHT,
 ): void {
   const loc = getLocations(gl, prog);
   gl.useProgram(prog);
@@ -101,7 +107,7 @@ export function renderShader(
   gl.bindTexture(gl.TEXTURE_2D, texTo);
   gl.uniform1i(loc.to, 1);
   gl.uniform1f(loc.progress, progress);
-  gl.uniform2f(loc.resolution, WIDTH, HEIGHT);
+  gl.uniform2f(loc.resolution, width, height);
   if (colors) {
     gl.uniform3f(loc.accent, ...colors.accent);
     gl.uniform3f(loc.accentDark, ...colors.dark);

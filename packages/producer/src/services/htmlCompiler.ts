@@ -23,7 +23,7 @@ import {
   rewriteAssetPaths,
   rewriteCssAssetUrls,
 } from "@hyperframes/core";
-import { extractVideoMetadata, extractAudioMetadata } from "../utils/ffprobe.js";
+import { extractMediaMetadata, extractAudioMetadata } from "../utils/ffprobe.js";
 import { isPathInside, toExternalAssetKey } from "../utils/paths.js";
 import {
   parseVideoElements,
@@ -74,9 +74,21 @@ function dedupeElementsById<T extends { id: string }>(elements: T[]): T[] {
 }
 
 const INLINE_SCRIPT_PATTERN = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const COMPILER_MOUNT_BLOCK_START = "/* __HF_COMPILER_MOUNT_START__ */";
+const COMPILER_MOUNT_BLOCK_END = "/* __HF_COMPILER_MOUNT_END__ */";
 
 function stripJsComments(source: string): string {
   return source.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+function stripCompilerMountBootstrap(source: string): string {
+  return source.replace(
+    new RegExp(
+      `${COMPILER_MOUNT_BLOCK_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${COMPILER_MOUNT_BLOCK_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+      "g",
+    ),
+    "",
+  );
 }
 
 export function detectRenderModeHints(html: string): RenderModeHints {
@@ -96,7 +108,7 @@ export function detectRenderModeHints(html: string): RenderModeHints {
   while ((scriptMatch = scriptPattern.exec(html)) !== null) {
     const attrs = scriptMatch[1] || "";
     if (/\bsrc\s*=/i.test(attrs)) continue;
-    const content = stripJsComments(scriptMatch[2] || "");
+    const content = stripJsComments(stripCompilerMountBootstrap(scriptMatch[2] || ""));
     if (!/requestAnimationFrame\s*\(/.test(content)) continue;
     reasons.push({
       code: "requestAnimationFrame",
@@ -140,7 +152,7 @@ async function resolveMediaDuration(
 
   const metadata =
     tagName === "video"
-      ? await extractVideoMetadata(filePath)
+      ? await extractMediaMetadata(filePath)
       : await extractAudioMetadata(filePath);
 
   const fileDuration = metadata.durationSeconds;
@@ -664,6 +676,7 @@ function inlineSubCompositions(
     }
   };
   if (!__compId) { __run(); return; }
+  ${COMPILER_MOUNT_BLOCK_START}
   var __selector = '[data-composition-id="' + (__compId + '').replace(/"/g, '\\\\"') + '"]';
   var __attempt = 0;
   var __tryRun = function() {
@@ -672,6 +685,7 @@ function inlineSubCompositions(
     requestAnimationFrame(__tryRun);
   };
   __tryRun();
+  ${COMPILER_MOUNT_BLOCK_END}
 })()`);
       }
       scriptEl.remove();
@@ -1019,7 +1033,7 @@ export async function compileForRender(
     if (isHttpUrl(video.src)) continue;
     const videoPath = resolve(projectDir, video.src);
     const reencode = `ffmpeg -i "${video.src}" -c:v libx264 -r 30 -g 30 -keyint_min 30 -movflags +faststart -c:a copy output.mp4`;
-    Promise.all([analyzeKeyframeIntervals(videoPath), extractVideoMetadata(videoPath)])
+    Promise.all([analyzeKeyframeIntervals(videoPath), extractMediaMetadata(videoPath)])
       .then(([analysis, metadata]) => {
         if (analysis.isProblematic) {
           console.warn(

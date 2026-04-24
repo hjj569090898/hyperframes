@@ -10,7 +10,7 @@ import { streamSSE } from "hono/streaming";
 import { existsSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
 import { createProjectWatcher, type ProjectWatcher } from "./fileWatcher.js";
-import { loadRuntimeSourceFallback } from "./runtimeSource.js";
+import { loadRuntimeSource } from "./runtimeSource.js";
 import { VERSION as version } from "../version.js";
 import {
   createStudioApi,
@@ -33,6 +33,8 @@ function resolveDistDir(): string {
 function resolveRuntimePath(): string {
   const builtPath = resolve(__dirname, "hyperframe-runtime.js");
   if (existsSync(builtPath)) return builtPath;
+  const iifePath = resolve(__dirname, "hyperframe.runtime.iife.js");
+  if (existsSync(iifePath)) return iifePath;
   const devPath = resolve(
     __dirname,
     "..",
@@ -282,9 +284,9 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
   // CLI-specific routes (before shared API)
   app.get("/api/runtime.js", (c) => {
     const serve = async () => {
-      const runtimeSource = existsSync(runtimePath)
-        ? readFileSync(runtimePath, "utf-8")
-        : await loadRuntimeSourceFallback();
+      const runtimeSource =
+        (await loadRuntimeSource()) ??
+        (existsSync(runtimePath) ? readFileSync(runtimePath, "utf-8") : null);
       if (!runtimeSource) return c.text("runtime not available", 404);
       return c.body(runtimeSource, 200, {
         "Content-Type": "text/javascript",

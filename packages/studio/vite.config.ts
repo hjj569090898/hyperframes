@@ -14,6 +14,8 @@ import type {
   ResolvedProject,
   RenderJobState,
 } from "@hyperframes/core/studio-api";
+import { createRetryingModuleLoader, ensureProducerDist } from "./vite.producer";
+import { readNodeRequestBody } from "./vite.request-body.js";
 
 // ── Shared Puppeteer browser ─────────────────────────────────────────────────
 
@@ -51,6 +53,19 @@ const THUMBNAIL_CACHE_VERSION = "v2";
 function createViteAdapter(dataDir: string, server: ViteDevServer): StudioApiAdapter {
   // Lazy-load the bundler via Vite's SSR module loader
   let _bundler: ((dir: string) => Promise<string>) | null = null;
+  let _producerModulePromise: Promise<{
+    createRenderJob: (config: {
+      fps: 24 | 30 | 60;
+      quality: "draft" | "standard" | "high";
+      format: string;
+    }) => unknown;
+    executeRenderJob: (
+      job: unknown,
+      projectDir: string,
+      outputPath: string,
+      onProgress?: (job: { progress: number; currentStage?: string }) => void,
+    ) => Promise<void>;
+  }> | null = null;
   const getBundler = async () => {
     if (!_bundler) {
       try {
@@ -64,8 +79,28 @@ function createViteAdapter(dataDir: string, server: ViteDevServer): StudioApiAda
     return _bundler;
   };
 
+  const getProducerModule = async () => {
+    if (!_producerModulePromise) {
+      _producerModulePromise = createRetryingModuleLoader(async () => {
+        const { built } = ensureProducerDist({
+          studioDir: __dirname,
+          env: process.env,
+        });
+        if (built) {
+          console.warn(
+            "[Studio] @hyperframes/producer dist missing; building producer package for local renders...",
+          );
+        }
+        const producerPkg = "@hyperframes/producer";
+        return await import(/* @vite-ignore */ producerPkg);
+      })();
+    }
+    return _producerModulePromise();
+  };
+
   return {
     listProjects() {
+      if (!existsSync(dataDir)) return [];
       const sessionsDir = resolve(dataDir, "../sessions");
       const sessionMap = new Map<string, { sessionId: string; title: string }>();
       if (existsSync(sessionsDir)) {
@@ -167,12 +202,7 @@ function createViteAdapter(dataDir: string, server: ViteDevServer): StudioApiAda
             ].find((p) => existsSync(p));
             if (systemChrome) process.env.PRODUCER_HEADLESS_SHELL_PATH = systemChrome;
           }
-          // Dynamic import hidden from esbuild's static analysis (vite.config.ts is
-          // bundled by esbuild at startup; a bare specifier would fail the externalize-deps plugin).
-          const producerPkg = "@hyperframes/producer";
-          const { createRenderJob, executeRenderJob } = await import(
-            /* @vite-ignore */ producerPkg
-          );
+          const { createRenderJob, executeRenderJob } = await getProducerModule();
           const job = createRenderJob({
             fps: opts.fps as 24 | 30 | 60,
             quality: opts.quality as "draft" | "standard" | "high",
@@ -370,16 +400,17 @@ function devProjectApi(): Plugin {
         return _api;
       };
 
-      // Serve the local runtime IIFE so compositions don't depend on CDN
+      // In dev, prefer the runtime built from source over a checked-in dist
+      // artifact. Otherwise Studio can silently serve a stale runtime bundle
+      // after source edits in packages/core, which makes browser behavior lag
+      // behind the code under test until someone manually rebuilds core/dist.
       const runtimePath = resolve(__dirname, "../core/dist/hyperframe.runtime.iife.js");
       server.middlewares.use((req, res, next) => {
         if (req.url !== "/api/runtime.js") return next();
         const serve = async () => {
-          let runtimeSource: string | null = null;
-          if (existsSync(runtimePath)) {
+          let runtimeSource = await loadRuntimeSourceForDev(server);
+          if (!runtimeSource && existsSync(runtimePath)) {
             runtimeSource = readFileSync(runtimePath, "utf-8");
-          } else {
-            runtimeSource = await loadRuntimeSourceForDev(server);
           }
 
           if (!runtimeSource) {
@@ -416,13 +447,10 @@ function devProjectApi(): Plugin {
           url.pathname = url.pathname.slice(4);
 
           // Read body for non-GET/HEAD
-          let body: string | undefined;
+          let body: Buffer | undefined;
           if (req.method !== "GET" && req.method !== "HEAD") {
-            body = await new Promise<string>((resolve) => {
-              let data = "";
-              req.on("data", (chunk: Buffer) => (data += chunk.toString()));
-              req.on("end", () => resolve(data));
-            });
+            const bytes = await readNodeRequestBody(req);
+            body = bytes.byteLength > 0 ? bytes : undefined;
           }
 
           const headers: Record<string, string> = {};

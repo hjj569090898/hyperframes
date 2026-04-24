@@ -122,6 +122,7 @@ export {
   type ExtractedFrames,
   type ExtractionOptions,
   type ExtractionResult,
+  type ExtractionPhaseBreakdown,
 } from "./services/videoFrameExtractor.js";
 
 export { createVideoFrameInjector } from "./services/videoFrameInjector.js";
@@ -152,6 +153,7 @@ export {
 export { quantizeTimeToFrame, MEDIA_VISUAL_STYLE_PROPERTIES } from "@hyperframes/core";
 
 export {
+  extractMediaMetadata,
   extractVideoMetadata,
   extractAudioMetadata,
   analyzeKeyframeIntervals,
@@ -170,7 +172,6 @@ export {
   blitRgb48leRegion,
   blitRgb48leAffine,
   parseTransformMatrix,
-  getSrgbToHdrLut,
   roundedRectAlpha,
   resampleRgb48leObjectFit,
   normalizeObjectFit,

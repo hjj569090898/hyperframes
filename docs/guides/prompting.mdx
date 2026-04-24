@@ -27,6 +27,21 @@ In Claude Code, restart the session after installing. Skills register as **slash
   Always prefix Hyperframes prompts with `/hyperframes` (or invoke the skill another way for non-Claude agents). This loads the skill context explicitly so the agent gets composition rules right the first time, instead of relying on whatever it remembers about web video.
 </Tip>
 
+## Claude Design
+
+Claude Design uses a different setup. Right-click [`SKILL.md`](https://raw.githubusercontent.com/heygen-com/hyperframes/main/skills/claude-design-hyperframes/SKILL.md) → **Save Link As** to download, then **attach it to your chat** (don't paste the URL — file attachments produce better output):
+
+```text
+Use the attached skill. 25-second LinkedIn video for my startup.
+
+Problem: Sales teams waste 3 hours/day on manual CRM updates.
+Solution: AutoCRM — AI that logs every call, email, and meeting.
+Traction: 200+ teams, $1.2M ARR, 18% MoM growth.
+CTA: autocrmhq.com
+```
+
+Claude Design produces a valid first draft (brand identity, scene content, animations, transitions). Download the ZIP and refine in any AI coding agent with `npx hyperframes preview` running. See the [Claude Design guide](/guides/claude-design) for the full workflow.
+
 ## The two prompt shapes
 
 Most successful Hyperframes prompts fall into one of two shapes.

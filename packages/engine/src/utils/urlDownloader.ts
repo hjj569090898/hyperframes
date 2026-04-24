@@ -1,8 +1,8 @@
-import { createWriteStream, existsSync, mkdirSync } from "fs";
+import { createWriteStream, existsSync, mkdirSync, rmSync } from "fs";
 import { createHash } from "crypto";
 import { join, extname } from "path";
 import { Readable } from "stream";
-import { finished } from "stream/promises";
+import { pipeline } from "stream/promises";
 
 const downloadPathCache = new Map<string, string>();
 const inFlightDownloads = new Map<string, Promise<string>>();
@@ -41,12 +41,12 @@ export async function downloadToTemp(
   }
 
   const downloadPromise = (async () => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -59,17 +59,23 @@ export async function downloadToTemp(
       const fileStream = createWriteStream(localPath);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const readableStream = Readable.fromWeb(response.body as any);
-      await finished(readableStream.pipe(fileStream));
+      await pipeline(readableStream, fileStream);
 
       downloadPathCache.set(url, localPath);
       return localPath;
     } catch (err) {
+      try {
+        if (existsSync(localPath)) rmSync(localPath, { force: true });
+      } catch {
+        // Best effort cleanup for partial downloads.
+      }
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("aborted")) {
         throw new Error(`[URLDownloader] Download timeout after ${timeoutMs / 1000}s: ${url}`);
       }
       throw new Error(`[URLDownloader] Download failed: ${message}`);
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
       inFlightDownloads.delete(url);
     }
   })();
